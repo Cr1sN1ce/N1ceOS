@@ -1,0 +1,72 @@
+{
+  "name": "n1iceos",
+  "version": "1.0.0",
+  "description": "N1ceOS - a desktop operating system simulation",
+  "main": "main.js",
+  "author": {
+    "name": "Cr1sN1ce",
+    "email": "n1ce@example.com"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/users.test.js",
+    "dist": "electron-builder --win nsis --x64",
+    "dist:linux": "electron-builder --linux AppImage deb rpm",
+    "pack:linux": "electron-builder --linux dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "os.n1ce.desktop",
+    "productName": "N1ceOS",
+    "copyright": "Cr1sN1ce",
+    "files": [
+      "main.js",
+      "preload.js",
+      "users.js",
+      "renderer/**"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": false,
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
+      "artifactName": "N1ceOS-Setup-${version}.exe"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "icon": "build/icon.png",
+      "category": "System",
+      "executableName": "n1iceos",
+      "synopsis": "Desktop operating system simulation",
+      "description": "N1ceOS is a desktop operating system simulation: a Linux/macOS-style desktop with a window manager, dock, file manager, terminal, web browser, games and user accounts. It runs as a normal application and does not change your real system.",
+      "maintainer": "Cr1sN1ce <n1ce@example.com>"
+    }
+  },
+  "homepage": "https://github.com/Cr1sN1ce/n1iceos"
+}

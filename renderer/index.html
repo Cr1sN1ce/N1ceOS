@@ -1,0 +1,629 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>N1ceOS</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.383.0/dist/umd/lucide.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.min.js"></script>
+<style>
+:root{--bg:#15161c;--sf:rgba(32,34,44,.82);--sf2:#262833;--tx:#e8e9f0;--mu:#8b8fa3;--bd:rgba(255,255,255,.09);--ac:#6c8cff}
+:root[data-l="1"]{--bg:#e9ebf2;--sf:rgba(255,255,255,.85);--sf2:#f1f2f7;--tx:#1b1d27;--mu:#666b80;--bd:rgba(0,0,0,.1)}
+html,body,#root{height:100%;margin:0;overflow:hidden;font-family:Inter,system-ui,sans-serif;color:var(--tx);background:#000;user-select:none}
+.gl{background:var(--sf);backdrop-filter:blur(18px);border:1px solid var(--bd)}
+.win{animation:pop .18s ease-out}@keyframes pop{from{opacity:0;transform:scale(.94)}}
+.btn{padding:4px 10px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd)}.btn:hover{background:var(--ac);color:#fff}
+.it:hover{background:rgba(127,127,160,.2)}input,textarea{background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:4px 8px;outline:none;user-select:text}
+input:focus,textarea:focus{border-color:var(--ac)}
+.n1drag webview,.n1drag iframe{pointer-events:none}
+.dk{transition:all .15s cubic-bezier(.3,1.4,.5,1)}
+</style></head><body><div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState,useEffect,useRef,useCallback}=React;
+const I=({n,s=18,c=''})=>{let d=lucide.icons[n]||lucide.icons.Circle;if(d[0]==="svg")d=d[2]||[];return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={c}>{d.map(([t,a],i)=>React.createElement(t,{...a,key:i}))}</svg>};
+let UKV=null; // per-user data cache (Electron: loaded from main process after login, persisted via IPC)
+const ld=(k,d)=>{try{if(UKV)return UKV[k]??d;return JSON.parse(localStorage.getItem(k))??d}catch{return d}};
+const sv=(k,v)=>{try{if(UKV){UKV[k]=v;window.n1ce.kv.set(k,v);return}localStorage.setItem(k,JSON.stringify(v))}catch{}};
+const WALLS=[["Nebula","linear-gradient(135deg,#1a1b3a,#3b2a6b 50%,#12304f)"],["Aurora","linear-gradient(160deg,#0b1d2a,#14504a 55%,#2a2a6a)"],["Dusk","linear-gradient(135deg,#2a1530,#5a2a55 50%,#1c2a55)"],["Graphite","linear-gradient(135deg,#17181d,#2c2e38)"]];
+const ACC=["#6c8cff","#a07bff","#3ecfb2","#ff7ba8","#ffb454"];
+const DEF_FS={desktop:{n:"Desktop",t:"d",p:"home"},docs:{n:"Documents",t:"d",p:"home"},dl:{n:"Downloads",t:"d",p:"home"},pics:{n:"Pictures",t:"d",p:"home"},r1:{n:"readme.txt",t:"f",p:"docs",c:"Welcome to N1ceOS 1.0 by Cr1sN1ce.\nEverything here lives in your browser's localStorage."}};
+const APPS0={files:["Files","FolderOpen"],term:["Terminal","SquareTerminal"],browser:["N1ce Browser","Globe"],settings:["Settings","Settings"],edit:["Text Editor","FileText"],calc:["Calculator","Calculator"],mon:["System Monitor","Activity"],store:["App Store","ShoppingBag"],chess:["N1ce Chess","Crown"],hockey:["N1ce Air Hockey","Target"],notes:["Notes+","NotebookPen"],paint:["Paint","Palette"],weather:["Weather","CloudSun"],music:["Music","Music"],clock:["Clock","Clock"],viewer:["Image Viewer","Image"],trash:["Trash","Trash2"]};
+const PKI={};const APPS=new Proxy(APPS0,{get:(t,k)=>t[k]||(typeof k==="string"?PKI[k]:undefined)});
+const STORE=[["Notes+","Productivity","NotebookPen","notes","Notes that save automatically."],["Paint","Graphics","Palette","paint","Draw, erase, save and open images."],["Chess","Games","Crown",null,"",1],["Weather","Utilities","CloudSun","weather","Live weather for any city."],["Music","Media","Music","music","Spotify player."],["Clock","Utilities","Clock","clock","Clock, stopwatch, timer and alarms."],["N1ce Chess","Games","Crown","chess","Full chess rules, computer opponent, clocks and analysis."],["N1ce Air Hockey","Games","Target","hockey","Arcade air hockey vs computer or a friend."],["N1ce Browser","Internet","Globe","browser","Tabbed browser with bookmarks, history, downloads and settings."]];
+let uid=Date.now();const nid=()=>"f"+(uid++).toString(36);
+
+function App({user,logout}){
+ const [booted,setBooted]=useState(false);const [me,setMe]=useState(user);
+ const [S,setS]=useState(()=>({acc:ACC[0],light:0,wall:0,dock:"bottom",hide:0,wifi:1,bt:1,dnd:0,vol:60,br:100,inst:[],...ld("n1_s",{})}));
+ const [fs,setFs]=useState(()=>ld("n1_fs",DEF_FS));
+ const [wins,setWins]=useState([]);const [z,setZ]=useState(10);
+ const [menu,setMenu]=useState(null);const [panel,setPanel]=useState(null);
+ const [notes,setNotes]=useState([{t:"Welcome to N1ceOS",b:"Double-click icons or use the Dock."}]);
+ const [toast,setToast]=useState(null);const [now,setNow]=useState(new Date());
+ const t0=useRef(Date.now());
+ (S.pk||[]).forEach(p=>{PKI["pkg:"+p.id]=[p.name,p.icon]});
+ useEffect(()=>{sv("n1_s",S);document.documentElement.dataset.l=S.light;document.documentElement.style.setProperty("--ac",S.acc)},[S]);
+ useEffect(()=>sv("n1_fs",fs),[fs]);
+ useEffect(()=>{const i=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(i)},[]);
+ useEffect(()=>{const t=setTimeout(()=>setBooted(true),2400);return()=>clearTimeout(t)},[booted]);
+ useEffect(()=>{const h=ev=>{const {e,items}=ev.detail;setMenu({x:Math.min(e.clientX,innerWidth-190),y:Math.min(e.clientY,innerHeight-items.length*34-10),items})};addEventListener("n1ctx",h);return()=>removeEventListener("n1ctx",h)},[]);
+ const up=(k,v)=>setS(s=>({...s,[k]:v}));
+ const notify=(t,b="")=>{setNotes(n=>[{t,b},...n].slice(0,20));if(!S.dnd){setToast({t,b});setTimeout(()=>setToast(null),2500)}};
+ const F={fs,
+  mk:(n,t,p,c="")=>{const id=nid();setFs(f=>({...f,[id]:{n,t,p,c}}));return id},
+  ren:(id,n)=>setFs(f=>({...f,[id]:{...f[id],n}})),
+  set:(id,c)=>setFs(f=>({...f,[id]:{...f[id],c}})),
+  mkb:(n,p,b,size)=>{const id=nid();setFs(f=>({...f,[id]:{n,t:"f",p,c:"",b,size}}));return id},
+  del:id=>setFs(f=>({...f,[id]:{...f[id],del:1}})),
+  res:id=>setFs(f=>({...f,[id]:{...f[id],del:0}})),
+  purge:id=>setFs(f=>{const g={...f};const rm=x=>{if(g[x]&&g[x].b&&isEl)window.n1ce.file.remove(g[x].b);delete g[x];Object.keys(g).filter(k=>g[k].p===x).forEach(rm)};rm(id);return g}),
+  mv:(id,p)=>setFs(f=>({...f,[id]:{...f[id],p}}))};
+ const open=(app,arg)=>{
+  if(app==="trash"){app="files";arg="trash"}
+  setWins(w=>{const ex=w.find(x=>x.app===app&&app!=="edit"&&app!=="files"&&arg!=="new");const nz=z+1;setZ(nz);
+   if(ex)return w.map(x=>x===ex?{...x,min:0,z:nz}:x);
+   const k=w.length%6;return [...w,{id:nid(),app,arg,z:nz,min:0,max:0,x:120+k*34,y:60+k*30,w:app==="calc"?300:app==="mon"?520:app==="chess"?800:app==="hockey"?620:app==="browser"?900:720,h:app==="calc"?420:app==="chess"?580:app==="hockey"?640:app==="browser"?580:470}]})};
+ const foc=id=>{const cw=wins.find(x=>x.id===id);if(cw&&!cw.min&&cw.z===z)return;const nz=z+1;setZ(nz);setWins(w=>w.map(x=>x.id===id?{...x,z:nz,min:0}:x))};
+ useEffect(()=>{const fired=new Set();const i=setInterval(()=>{const d=new Date(),hm=String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");ld("n1_alarms",[]).forEach(a=>{const k=a.id+d.toDateString()+hm;if(a.on&&a.t===hm&&!fired.has(k)){fired.add(k);notify("Alarm",a.l||hm);[0,600,1200].forEach(t=>setTimeout(()=>snd({mute:0},880,.4),t))}})},5000);return()=>clearInterval(i)},[]);
+ useEffect(()=>{if(!isEl)return;const seen=new Set();return window.n1ce.onDownload(d=>{if(d.st==="Completed"&&d.stored&&!seen.has(d.id)){seen.add(d.id);F.mkb(d.stored,"dl",d.stored,d.size);notify("Download complete",d.stored+" saved to Downloads")}else if(d.st&&/^(Failed|Cancelled|Too large)/.test(d.st))notify("Download "+d.st.toLowerCase(),d.name||"")})},[]);
+ useEffect(()=>{const h=e=>foc(e.detail);addEventListener("n1focus",h);return()=>removeEventListener("n1focus",h)});
+ const upd=(id,p)=>setWins(w=>w.map(x=>x.id===id?{...x,...p}:x));
+ const close=id=>setWins(w=>w.filter(x=>x.id!==id));
+ const top=wins.filter(w=>!w.min).sort((a,b)=>b.z-a.z)[0];
+ const ctx=(e,items)=>{e.preventDefault();e.stopPropagation();setMenu({x:Math.min(e.clientX,innerWidth-190),y:Math.min(e.clientY,innerHeight-items.length*34-10),items})};
+ const reset=()=>{if(confirm("Reset N1ceOS? All files and settings will be erased.")){if(UKV){window.n1ce.kv.clear().then(()=>location.reload());return}localStorage.removeItem("n1_s");localStorage.removeItem("n1_fs");location.reload()}};
+ const ctxv={S,up,F,open,notify,wins,reset,t0,setBooted,user:me,setMe,logout};
+ if(!booted)return <Boot/>;
+ const dk=S.dock,vert=dk!=="bottom";
+ const desk=Object.entries(fs).filter(([,f])=>f.p==="desktop"&&!f.del);
+ return <C.Provider value={ctxv}><div className="h-full w-full relative overflow-hidden" style={{background:S.wall===-1&&S.cw?`url(${S.cw}) center/cover no-repeat`:WALLS[Math.max(0,S.wall)][1],filter:`brightness(${.4+S.br/166})`}} onMouseDown={()=>{setMenu(null);setPanel(null)}} onContextMenu={e=>ctx(e,[["New Folder","FolderPlus",()=>F.mk("New Folder","d","desktop")],["New Text File","FilePlus",()=>F.mk("untitled.txt","f","desktop")],["Change Wallpaper","Image",()=>{up("wall",(S.wall+1)%WALLS.length)}],["Settings","Settings",()=>open("settings")]])}>
+  <div className="absolute inset-0 pt-10 p-4 flex flex-col flex-wrap content-start gap-2" style={{paddingLeft:dk==="left"?90:16,paddingRight:dk==="right"?90:16}}>
+   {desk.map(([id,f])=><div key={id} className="w-20 p-2 rounded-lg it text-center cursor-default" onDoubleClick={()=>open(f.t==="d"?"files":(f.c||"").startsWith("data:image/")?"viewer":"edit",id)} onContextMenu={e=>ctx(e,[["Open","ExternalLink",()=>open(f.t==="d"?"files":(f.c||"").startsWith("data:image/")?"viewer":"edit",id)],["Rename","Pencil",()=>{const n=prompt("Name",f.n);n&&F.ren(id,n)}],["Move to Trash","Trash2",()=>F.del(id)]])}>
+    <I n={f.t==="d"?"Folder":"FileText"} s={38} c="mx-auto" /><div className="text-xs mt-1 truncate text-white drop-shadow">{f.n}</div></div>)}
+  </div>
+  {wins.map(w=><Win key={w.id} w={w} focused={top===w} {...{foc,upd,close,vert}}/>)}
+  <TopPanel {...{now,top,panel,setPanel,ctx,notes}}/>
+  <Dock {...{ctx,top,wins,foc,upd,close}}/>
+  {panel==="notif"&&<div className="gl absolute right-3 top-10 w-72 rounded-xl p-3 z-[9999]" onMouseDown={e=>e.stopPropagation()}><div className="flex justify-between mb-2 font-medium">Notifications<button className="text-xs" style={{color:"var(--ac)"}} onClick={()=>setNotes([])}>Clear</button></div>{notes.length?notes.map((n,i)=><div key={i} className="p-2 mb-1 rounded-lg" style={{background:"var(--sf2)"}}><div className="text-sm">{n.t}</div><div className="text-xs" style={{color:"var(--mu)"}}>{n.b}</div></div>):<div className="text-sm py-6 text-center" style={{color:"var(--mu)"}}>No notifications</div>}</div>}
+  {panel==="qs"&&<div className="gl absolute right-3 top-10 w-72 rounded-xl p-3 z-[9999]" onMouseDown={e=>e.stopPropagation()}>
+   <div className="grid grid-cols-2 gap-2 mb-3">{[["wifi","Wi-Fi","Wifi"],["bt","Bluetooth","Bluetooth"],["light","Light mode","Sun"],["dnd","Do Not Disturb","BellOff"]].map(([k,l,ic])=><button key={k} onClick={()=>up(k,S[k]?0:1)} className="flex items-center gap-2 p-2 rounded-lg text-sm" style={{background:S[k]?"var(--ac)":"var(--sf2)",color:S[k]?"#fff":"var(--tx)"}}><I n={ic}/>{l}</button>)}</div>
+   {[["vol","Volume","Volume2"],["br","Brightness","SunMedium"]].map(([k,l,ic])=><div key={k} className="flex items-center gap-2 mb-2"><I n={ic}/><input type="range" min="10" max="100" value={S[k]} onChange={e=>up(k,+e.target.value)} className="flex-1" style={{accentColor:S.acc,padding:0}}/><span className="text-xs w-7">{S[k]}</span></div>)}
+   <div className="flex gap-2 mt-2"><button className="btn flex-1" onClick={()=>open("settings")}>Settings</button><button className="btn flex-1" onClick={()=>{setWins([]);setBooted(false)}}>Restart</button></div></div>}
+  {menu&&<div className="gl fixed rounded-xl p-1 z-[10000] w-44" style={{left:menu.x,top:menu.y}} onMouseDown={e=>e.stopPropagation()}>{menu.items.map(([l,ic,fn])=><button key={l} className="it w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-left" onClick={()=>{setMenu(null);fn()}}><I n={ic} s={15}/>{l}</button>)}</div>}
+  {toast&&<div className="gl absolute right-3 top-12 rounded-xl px-4 py-2 z-[9998] win"><div className="text-sm font-medium">{toast.t}</div><div className="text-xs" style={{color:"var(--mu)"}}>{toast.b}</div></div>}
+ </div></C.Provider>}
+const C=React.createContext();
+const useC=()=>React.useContext(C);
+
+function Boot(){return <div className="h-full flex flex-col items-center justify-center" style={{background:"#0d0e13",color:"#e8e9f0"}}>
+ <div className="w-20 h-20 rounded-3xl flex items-center justify-center win" style={{background:"linear-gradient(135deg,#6c8cff,#a07bff)",boxShadow:"0 0 60px #6c8cff66"}}><span className="text-3xl font-bold">N1</span></div>
+ <div className="mt-5 text-xl font-semibold tracking-wide">N1ceOS</div><div className="mt-1 text-sm opacity-60">Starting N1ceOS...</div>
+ <div className="mt-6 w-48 h-1 rounded bg-white/10 overflow-hidden"><div className="h-full rounded" style={{background:"#6c8cff",animation:"bar 2.2s ease-out forwards"}}/></div><style>{"@keyframes bar{from{width:0}to{width:100%}}"}</style></div>}
+
+function TopPanel({now,top,panel,setPanel,ctx,notes}){const {S,open,wins,reset,setBooted,user,logout}=useC();
+ const [m,setM]=useState(0);
+ const nm=top?APPS[top.app][0]:"Desktop";
+ return <div className="gl absolute top-0 inset-x-0 h-8 flex items-center justify-between px-3 text-xs z-[9990]" onMouseDown={e=>e.stopPropagation()}>
+  <div className="flex items-center gap-3 relative"><button className="font-bold" style={{color:"var(--ac)"}} onClick={()=>setM(!m)}>N1</button><span className="font-semibold">{nm}</span>
+   {["File","View","Help"].map(x=><button key={x} className="it px-1.5 rounded" onClick={()=>x==="File"?open("files"):x==="View"?open("mon"):open("settings")}>{x}</button>)}
+   {m?<div className="gl absolute top-7 left-0 w-44 rounded-xl p-1 text-sm" onMouseLeave={()=>setM(0)}>{[["About N1ceOS","Info",()=>open("settings","about")],["Settings","Settings",()=>open("settings")],...(user?[["Log out ("+user.username+")","LogOut",logout]]:[]),["Restart","RotateCw",()=>setBooted(false)],["Reset N1ceOS","Eraser",reset]].map(([l,ic,fn])=><button key={l} className="it w-full flex gap-2 px-3 py-1.5 rounded-lg" onClick={()=>{setM(0);fn()}}><I n={ic} s={15}/>{l}</button>)}</div>:null}</div>
+  <div>{now.toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"})}  {now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
+  <div className="flex items-center gap-3"><I n={S.wifi?"Wifi":"WifiOff"} s={15}/><span className="flex items-center gap-1"><I n="BatteryMedium" s={16}/>82%</span><I n={S.vol?"Volume2":"VolumeX"} s={15}/>
+   <button onClick={()=>setPanel(panel==="notif"?null:"notif")} className="relative"><I n={S.dnd?"BellOff":"Bell"} s={15}/>{notes.length>0&&<span className="absolute -top-1 -right-1 w-2 h-2 rounded-full" style={{background:"var(--ac)"}}/>}</button>
+   <button onClick={()=>setPanel(panel==="qs"?null:"qs")}><I n="SlidersHorizontal" s={15}/></button></div></div>}
+
+function Dock({ctx,top,wins,foc,upd,close}){const {S,up,open}=useC();const [mx,setMx]=useState(null);
+ const v=S.dock!=="bottom";const ids=[...Object.keys(APPS).filter(k=>!["trash","chess","hockey","notes","paint","weather","music","clock","viewer"].includes(k)),...S.inst.filter(i=>STORE[i][3]!=="browser"&&!STORE[i][5]).map(i=>"x"+i),...(S.pk||[]).map(p=>"pkg:"+p.id),"trash"];
+ const [hov,setHov]=useState(!S.hide);
+ const info=k=>k[0]==="x"?[STORE[+k.slice(1)][0],STORE[+k.slice(1)][2]]:APPS[k];
+ const pos=S.dock==="bottom"?"bottom-2 left-1/2 -translate-x-1/2 flex-row":S.dock==="left"?"left-2 top-1/2 -translate-y-1/2 flex-col":"right-2 top-1/2 -translate-y-1/2 flex-col";
+ const hidden=S.hide&&!hov;
+ return <><div className="absolute z-[9991]" style={{[S.dock]:0,...(v?{top:0,bottom:0,width:8}:{left:0,right:0,height:8})}} onMouseEnter={()=>setHov(1)}/>
+ <div onMouseEnter={()=>setHov(1)} onMouseLeave={()=>{setMx(null);S.hide&&setHov(0)}} onMouseMove={e=>setMx(v?e.clientY:e.clientX)} onMouseDown={e=>e.stopPropagation()}
+  className={`gl absolute z-[9992] flex gap-1.5 p-1.5 rounded-2xl items-end ${pos}`} style={{transition:"transform .25s",transform:hidden?(S.dock==="bottom"?"translate(-50%,120px)":S.dock==="left"?"translate(-120px,-50%)":"translate(120px,-50%)"):undefined}}>
+  {ids.map(k=>{const [n,ic]=info(k);const ak=k[0]==="x"?(STORE[+k.slice(1)][3]||"browser"):k;const run=wins.some(w=>w.app===ak);
+   return <button key={k} title={n} data-dk={1} className="dk relative rounded-xl flex items-center justify-center text-white shrink-0"
+    ref={el=>{if(!el)return;const r=el.getBoundingClientRect();const c=v?r.top+r.height/2:r.left+r.width/2;const d=mx==null?999:Math.abs(mx-c);const sc=1+Math.max(0,1-d/110)*.55;el.style.width=el.style.height=48*sc+"px"}}
+    style={{background:k==="trash"?"#4a4d5e":`linear-gradient(135deg,${S.acc},#7a5cff)`}}
+    onClick={()=>open(ak)}
+    onContextMenu={e=>ctx(e,[["Open","ExternalLink",()=>open(ak)],...(run?[["Close","X",()=>wins.filter(w=>w.app===ak).forEach(w=>close(w.id))]]:[]),["Dock: Left","PanelLeft",()=>up("dock","left")],["Dock: Bottom","PanelBottom",()=>up("dock","bottom")],["Dock: Right","PanelRight",()=>up("dock","right")],[S.hide?"Disable auto-hide":"Auto-hide","EyeOff",()=>up("hide",S.hide?0:1)]])}>
+    <I n={ic} s={24}/>{run&&<span className="absolute w-1 h-1 rounded-full bg-white" style={v?{[S.dock==="left"?"left":"right"]:-4}:{bottom:-4}}/>}</button>})}
+ </div></>}
+
+function Win({w,focused,foc,upd,close}){
+ const drag=e=>{if(w.max||e.target.closest("button"))return;foc(w.id);document.body.classList.add("n1drag");const sx=e.clientX-w.x,sy=e.clientY-w.y;
+  const mv=ev=>upd(w.id,{x:ev.clientX-sx,y:Math.max(32,ev.clientY-sy)});
+  const up=ev=>{document.body.classList.remove("n1drag");removeEventListener("mousemove",mv);removeEventListener("mouseup",up);if(ev.clientX<8)upd(w.id,{x:0,y:32,w:innerWidth/2,h:innerHeight-32});else if(ev.clientX>innerWidth-8)upd(w.id,{x:innerWidth/2,y:32,w:innerWidth/2,h:innerHeight-32});else if(ev.clientY<34)upd(w.id,{max:1})};
+  addEventListener("mousemove",mv);addEventListener("mouseup",up)};
+ const res=e=>{e.stopPropagation();e.preventDefault();foc(w.id);document.body.classList.add("n1drag");const sx=e.clientX,sy=e.clientY,sw=w.w,sh=w.h;
+  const mv=ev=>upd(w.id,{w:Math.max(300,sw+ev.clientX-sx),h:Math.max(240,sh+ev.clientY-sy)});
+  const up=()=>{document.body.classList.remove("n1drag");removeEventListener("mousemove",mv);removeEventListener("mouseup",up)};addEventListener("mousemove",mv);addEventListener("mouseup",up)};
+ const st=w.max?{left:0,top:32,width:"100%",height:"calc(100% - 32px)"}:{left:w.x,top:w.y,width:w.w,height:w.h};
+ const Cmp={files:Files,term:Term,browser:Browser,settings:SettingsApp,edit:Editor,calc:Calc,mon:Mon,store:Store,chess:ChessApp,hockey:Hockey,notes:Notes,paint:Paint,weather:Weather,music:Music,clock:ClockApp,viewer:Viewer}[w.app]||PkgApp;
+ return <div className="gl win absolute rounded-xl flex flex-col overflow-hidden" onMouseDown={()=>foc(w.id)}
+  style={{...st,zIndex:w.z,display:w.min?"none":"flex",boxShadow:focused?"0 20px 60px rgba(0,0,0,.5)":"0 8px 24px rgba(0,0,0,.3)",opacity:focused?1:.94}}>
+  <div className="h-9 flex items-center px-3 gap-2 shrink-0 border-b" style={{borderColor:"var(--bd)"}} onMouseDown={drag} onDoubleClick={()=>upd(w.id,{max:!w.max})}>
+   <div className="flex gap-1.5"><button onClick={()=>close(w.id)} className="w-3.5 h-3.5 rounded-full bg-red-400" title="Close"/><button onClick={()=>upd(w.id,{min:1})} className="w-3.5 h-3.5 rounded-full bg-yellow-400" title="Minimize"/><button onClick={()=>upd(w.id,{max:!w.max})} className="w-3.5 h-3.5 rounded-full bg-green-400" title="Maximize"/></div>
+   <div className="flex-1 text-center text-xs font-medium" style={{color:"var(--mu)"}}>{APPS[w.app][0]}</div><div className="w-12"/></div>
+  <div className="flex-1 min-h-0 overflow-auto" style={{background:"var(--bg)"}}><Cmp w={w} upd={upd}/></div>
+  {!w.max&&<div onMouseDown={res} className="absolute right-0 bottom-0 w-4 h-4 cursor-se-resize"/>}</div>}
+
+const kids=(fs,p,tr)=>Object.entries(fs).filter(([,f])=>f.p===p&&!!f.del===!!tr).sort((a,b)=>(a[1].t<b[1].t?-1:1)||a[1].n.localeCompare(b[1].n));
+const pathOf=(fs,id)=>{const a=[];while(id&&id!=="home"&&fs[id]){a.unshift(fs[id].n);id=fs[id].p}return a};
+
+function Files({w}){const {F,open,notify}=useC();const {fs}=F;const [cur,setCur]=useState(w.arg||"home");const [grid,setGrid]=useState(1);const [sel,setSel]=useState(null);
+ const tr=cur==="trash";const list=tr?Object.entries(fs).filter(([,f])=>f.del):kids(fs,cur);
+ const trail=[["home","Home"],...[...Array(0)]];const chain=[];let x=cur;while(x&&x!=="home"&&fs[x]){chain.unshift(x);x=fs[x].p}
+ const go=f=>f&&setCur(f);
+ const sideItems=[["home","Home","House"],["desktop","Desktop","Monitor"],["docs","Documents","FileText"],["dl","Downloads","Download"],["pics","Pictures","Image"],["trash","Trash","Trash2"]];
+ const menu=(e,id,f)=>{e.preventDefault();e.stopPropagation();setSel(id);const items=tr?[["Restore","Undo2",()=>F.res(id)],["Delete forever","XCircle",()=>F.purge(id)]]:[["Open","ExternalLink",()=>op(id,f)],["Rename","Pencil",()=>{const n=prompt("New name",f.n);n&&F.ren(id,n)}],["Move to Desktop","Monitor",()=>F.mv(id,"desktop")],["Move to Documents","FileText",()=>F.mv(id,"docs")],["Move to Trash","Trash2",()=>{F.del(id);notify("Moved to Trash",f.n)}]];
+  window.dispatchEvent(new CustomEvent("n1ctx",{detail:{e,items}}))};
+ const ap=f=>f.t==="d"?"files":(f.c||"").startsWith("data:image/")?"viewer":"edit";
+ const op=(id,f)=>f.t==="d"?setCur(id):f.b?(window.n1ce.file.reveal(f.b),notify("Shown in your system file explorer",f.n)):open(ap(f),id);
+ return <div className="flex h-full text-sm">
+  <div className="w-40 p-2 shrink-0 border-r" style={{borderColor:"var(--bd)",background:"var(--sf2)"}}>{sideItems.map(([id,l,ic])=><button key={id} onClick={()=>setCur(id)} className="it w-full flex items-center gap-2 px-2 py-1.5 rounded-lg mb-0.5" style={cur===id?{background:"var(--ac)",color:"#fff"}:{}}><I n={ic} s={15}/>{l}</button>)}</div>
+  <div className="flex-1 flex flex-col min-w-0">
+   <div className="flex items-center gap-2 p-2 border-b" style={{borderColor:"var(--bd)"}}>
+    <button className="btn" onClick={()=>setCur(fs[cur]?.p||"home")} title="Up"><I n="ArrowUp" s={14}/></button>
+    <div className="flex-1 flex items-center gap-1 text-xs truncate">{tr?<span>Trash</span>:<><button onClick={()=>setCur("home")}>Home</button>{chain.map(c=><span key={c}> / <button onClick={()=>setCur(c)}>{fs[c].n}</button></span>)}</>}</div>
+    {!tr&&<><button className="btn" title="New folder" onClick={()=>{const n=prompt("Folder name","New Folder");n&&F.mk(n,"d",cur)}}><I n="FolderPlus" s={14}/></button><button className="btn" title="New text file" onClick={()=>{const n=prompt("File name","untitled.txt");n&&F.mk(n,"f",cur)}}><I n="FilePlus" s={14}/></button><label className="btn cursor-pointer" title="Import image (PNG, JPG, WEBP)"><I n="ImagePlus" s={14}/><input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={e=>{const f=e.target.files[0];e.target.value="";readImg(f).then(r=>F.mk(f.name,"f",cur,r.url)).catch(er=>notify("Import failed",er.message))}}/></label></>}
+    <button className="btn" onClick={()=>setGrid(!grid)} title="Toggle view"><I n={grid?"List":"LayoutGrid"} s={14}/></button></div>
+   <div className={`flex-1 p-3 overflow-auto ${grid?"flex flex-wrap content-start gap-2":""}`} onContextMenu={e=>{e.preventDefault();e.stopPropagation()}}>
+    {list.length===0&&<div className="w-full text-center py-16" style={{color:"var(--mu)"}}><I n={tr?"Trash2":"FolderOpen"} s={36} c="mx-auto mb-2"/>{tr?"Trash is empty":"This folder is empty"}</div>}
+    {list.map(([id,f])=><div key={id} className={`it rounded-lg cursor-default ${grid?"w-24 p-2 text-center":"flex items-center gap-3 px-3 py-1.5"}`} style={sel===id?{background:"rgba(127,127,200,.28)"}:{}} onClick={()=>setSel(id)} onDoubleClick={()=>!tr&&op(id,f)} onContextMenu={e=>menu(e,id,f)}>
+     <I n={f.t==="d"?"Folder":"FileText"} s={grid?36:18} c={grid?"mx-auto":""}/><div className={`text-xs ${grid?"mt-1 truncate":""}`}>{f.n}</div></div>)}
+   </div>
+   {tr&&list.length>0&&<div className="p-2 border-t text-right" style={{borderColor:"var(--bd)"}}><button className="btn" onClick={()=>list.forEach(([id])=>F.purge(id))}>Empty Trash</button></div>}
+  </div></div>}
+
+function Editor({w,upd}){const {F,notify}=useC();const {fs}=F;const [id,setId]=useState(w.arg);const f=fs[id];const [txt,setTxt]=useState(f?.c||"");const [name,setName]=useState(f?.n||"untitled.txt");const [dirty,setDirty]=useState(0);
+ const save=()=>{if(id&&fs[id]){F.set(id,txt);F.ren(id,name)}else{const n=F.mk(name,"f","docs",txt);setId(n)}setDirty(0);notify("Saved",name+" saved to Documents")};
+ const opn=()=>{const fl=Object.entries(fs).filter(([,x])=>x.t==="f"&&!x.del);const n=prompt("Open which file?\n"+fl.map(([,x])=>x.n).join("\n"));const m=fl.find(([,x])=>x.n===n);if(m){setId(m[0]);setTxt(m[1].c||"");setName(m[1].n)}else if(n)notify("File not found",n)};
+ return <div className="h-full flex flex-col"><div className="flex items-center gap-2 p-2 border-b text-sm" style={{borderColor:"var(--bd)"}}>
+  <button className="btn" onClick={()=>{setId(null);setTxt("");setName("untitled.txt")}}>New</button><button className="btn" onClick={opn}>Open</button><button className="btn" onClick={save}>Save{dirty?" •":""}</button>
+  <input className="flex-1" value={name} onChange={e=>{setName(e.target.value);setDirty(1)}}/><span className="text-xs" style={{color:"var(--mu)"}}>{txt.length} chars · {txt.split(/\s+/).filter(Boolean).length} words</span></div>
+  <textarea className="flex-1 rounded-none border-0 font-mono text-sm resize-none p-3" value={txt} onChange={e=>{setTxt(e.target.value);setDirty(1)}} onKeyDown={e=>{if((e.ctrlKey||e.metaKey)&&e.key==="s"){e.preventDefault();save()}}} placeholder="Start typing..."/></div>}
+
+function Term(){const {F,S,t0,user}=useC();const un=user?user.username:"cris";const {fs}=F;const [cwd,setCwd]=useState("home");const [log,setLog]=useState([["Welcome to N1ceOS 1.0 terminal. Type 'help'."]]);const [inp,setInp]=useState("");const [hist,setHist]=useState(()=>ld("n1_thist",[]));const conf=useRef(null);const ref=useRef();const [hi,setHi]=useState(-1);
+ useEffect(()=>{ref.current?.scrollTo(0,1e6)},[log]);
+ useEffect(()=>{sv("n1_thist",hist.slice(-200))},[hist]);
+ const pr=()=>un+"@n1iceos:"+(cwd==="home"?"~":"~/"+pathOf(fs,cwd).join("/"))+"$";
+ const find=(n,p=cwd)=>Object.entries(fs).find(([,f])=>f.p===p&&f.n===n&&!f.del);
+ const run=l=>{const say=(...x)=>setLog(g=>[...g,x]);
+  if(conf.current){const cf=conf.current;conf.current=null;say(pr()+" "+l);if(/^y(es)?$/i.test(l.trim())){window.n1ce.users.remove({username:cf}).then(r=>say(r.ok?r.msg:(r.error||"deluser: failed")))}else say("deluser: aborted");return}
+  const [c,...a]=l.trim().split(/\s+/);const arg=a.join(" ");let out=[],nc=cwd;
+  switch(c){case"":break;
+  case"help":out=["help clear ls pwd cd mkdir touch cat echo whoami hostname date uname neofetch history deluser wget"];break;
+  case"wget":{if(!isEl){out=["wget: downloads need the N1ceOS desktop app"];break}if(!/^https?:\/\//i.test(arg)){out=["usage: wget http(s)://url"];break}window.n1ce.download(arg);out=["Downloading "+arg+" ... it will appear in ~/Downloads when finished"];break}
+  case"deluser":{if(!isEl){out=["deluser: accounts are only available in the N1ceOS desktop app"];break}if(!a[0]||a.length>1){out=["usage: deluser username"];break}const t=a[0];say(pr()+" "+l);window.n1ce.users.check({username:t}).then(r=>{if(r.ok){conf.current=t;say("Remove user '"+t+"' and ALL of their files, settings and app data? This cannot be undone. [y/N]")}else say(r.error||"deluser: failed")});return}
+  case"clear":setLog([]);return;
+  case"ls":out=[kids(fs,cwd).map(([,f])=>f.t==="d"?f.n+"/":f.n).join("  ")||"(empty)"];break;
+  case"pwd":out=["/home/"+un+(cwd==="home"?"":"/"+pathOf(fs,cwd).join("/"))];break;
+  case"cd":if(!arg||arg==="~")nc="home";else if(arg==="..")nc=fs[cwd]?.p||"home";else{const m=find(arg);m&&m[1].t==="d"?nc=m[0]:out=["cd: "+arg+": No such directory"]}break;
+  case"mkdir":arg?find(arg)?out=["mkdir: exists"]:F.mk(arg,"d",cwd):out=["mkdir: missing operand"];break;
+  case"touch":arg?find(arg)||F.mk(arg,"f",cwd):out=["touch: missing operand"];break;
+  case"cat":{const m=find(arg);out=!arg?["cat: missing operand"]:!m?["cat: "+arg+": No such file"]:m[1].t==="d"?["cat: Is a directory"]:(m[1].c||"").split("\n")}break;
+  case"echo":{const mm=l.match(/^echo\s+(.*?)\s*>\s*(\S+)$/);if(mm){const t=mm[1].replace(/^["']|["']$/g,"");const m=find(mm[2]);m?F.set(m[0],t):F.mk(mm[2],"f",cwd,t)}else out=[arg.replace(/^["']|["']$/g,"")]}break;
+  case"whoami":out=[un];break;case"hostname":out=["n1iceos"];break;case"date":out=[new Date().toString()];break;
+  case"uname":out=[a[0]==="-a"?"N1ceOS 1.0 n1iceos 6.9.0-n1ce #1 SMP x86_64 GNU/Linux":"N1ceOS"];break;
+  case"neofetch":out=[un+"@n1iceos","-------------","OS: N1ceOS 1.0","Host: Browser Virtual Machine","Kernel: 6.9.0-n1ce","Uptime: "+Math.floor((Date.now()-t0.current)/60000)+" mins","Shell: nsh 1.0","DE: N1ce Plasma","Theme: "+(S.light?"Light":"Dark")+" ["+S.acc+"]","Memory: 2.4GiB / 8GiB"];break;
+  case"history":out=hist.map((h,i)=>" "+(i+1)+"  "+h);break;
+  default:out=[c+": command not found"]}
+  setCwd(nc);setLog(g=>[...g,[pr()+" "+l,...out]])};
+ return <div ref={ref} className="h-full p-3 font-mono text-sm overflow-auto" style={{background:"#0e0f14",color:"#d6d9e8",userSelect:"text"}} onClick={e=>e.currentTarget.querySelector("input").focus()}>
+  {log.map((b,i)=>b.map((l,j)=><div key={i+"-"+j} className="whitespace-pre-wrap">{l}</div>))}
+  <div className="flex"><span style={{color:S.acc}}>{pr()}&nbsp;</span><input autoFocus className="flex-1 border-0 p-0 rounded-none font-mono" style={{background:"transparent",color:"inherit"}} value={inp}
+   onChange={e=>setInp(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){if(inp.trim())setHist(h=>[...h,inp]);run(inp);setInp("");setHi(-1)}else if(e.key==="ArrowUp"&&hist.length){const n=hi<0?hist.length-1:Math.max(0,hi-1);setHi(n);setInp(hist[n])}else if(e.key==="ArrowDown"&&hi>=0){const n=hi+1;setHi(n>=hist.length?-1:n);setInp(hist[n]||"")}}}/></div></div>}
+
+function Calc(){const [d,setD]=useState("0");const [acc,setAcc]=useState(null);const [op,setOp]=useState(null);const [fresh,setFresh]=useState(1);
+ const ap=(a,b,o)=>o==="+"?a+b:o==="-"?a-b:o==="*"?a*b:o==="/"?(b===0?NaN:a/b):b;
+ const key=k=>{if(/\d|\./.test(k)){if(k==="."&&d.includes(".")&&!fresh)return;setD(fresh||d==="0"&&k!=="."?k:d+k);setFresh(0)}
+  else if(k==="C"){setD("0");setAcc(null);setOp(null);setFresh(1)}
+  else if(k==="B")setD(d.length>1&&!fresh?d.slice(0,-1):"0");
+  else if(k==="±")setD(String(-parseFloat(d)));else if(k==="%")setD(String(parseFloat(d)/100));
+  else{const v=parseFloat(d);const r=acc!==null&&op&&!fresh?ap(acc,v,op):v;setD(isNaN(r)?"Error":String(+r.toPrecision(12)));setAcc(isNaN(r)?null:r);setOp(k==="="?null:k);setFresh(1)}};
+ useEffect(()=>{const h=e=>{if(document.activeElement.tagName==="INPUT"||document.activeElement.tagName==="TEXTAREA")return;const m={Enter:"=","=":"=",Backspace:"B",Escape:"C"};const k=m[e.key]||e.key;if(/^[\d.+\-*/%]$/.test(k)||"=BC".includes(k))key(k)};addEventListener("keydown",h);return()=>removeEventListener("keydown",h)});
+ const rows=[["C","±","%","/"],["7","8","9","*"],["4","5","6","-"],["1","2","3","+"],["0",".","B","="]];
+ return <div className="h-full p-3 flex flex-col gap-2"><div className="text-right text-4xl p-3 rounded-xl truncate" style={{background:"var(--sf2)"}}>{d}</div>
+  <div className="flex-1 grid grid-cols-4 gap-2">{rows.flat().map(k=><button key={k} onClick={()=>key(k)} className="rounded-xl text-lg font-medium it" style={{background:"/*+-=".includes(k)?"var(--ac)":"var(--sf2)",color:"/*+-=".includes(k)?"#fff":"var(--tx)"}}>{k==="*"?"×":k==="/"?"÷":k==="B"?"⌫":k}</button>)}</div></div>}
+
+function Mon(){const {wins,t0}=useC();const [v,setV]=useState({c:[20],r:41,});const [,tick]=useState(0);
+ useEffect(()=>{const i=setInterval(()=>{setV(p=>({c:[...p.c,Math.max(3,Math.min(95,p.c[p.c.length-1]+(Math.random()-.5)*24))].slice(-40),r:Math.max(30,Math.min(80,p.r+(Math.random()-.5)*4))}));tick(x=>x+1)},1000);return()=>clearInterval(i)},[]);
+ const cpu=v.c[v.c.length-1];const up=Math.floor((Date.now()-t0.current)/1000);const used=Math.round(JSON.stringify(localStorage).length/1024);
+ const Bar=({l,p,t})=><div className="mb-3"><div className="flex justify-between text-xs mb-1"><span>{l}</span><span style={{color:"var(--mu)"}}>{t}</span></div><div className="h-2 rounded" style={{background:"var(--sf2)"}}><div className="h-full rounded transition-all" style={{width:p+"%",background:"var(--ac)"}}/></div></div>;
+ return <div className="p-4 text-sm"><div className="text-xs mb-3 px-2 py-1 rounded inline-block" style={{background:"var(--sf2)",color:"var(--mu)"}}>Simulated demo values</div>
+  <Bar l="CPU" p={cpu} t={cpu.toFixed(0)+"%"}/><Bar l="RAM" p={v.r} t={(v.r*.08).toFixed(1)+" / 8 GB"}/><Bar l="Storage (localStorage)" p={Math.min(100,used/51.2)} t={used+" KB / 5 MB"}/>
+  <svg viewBox="0 0 400 80" className="w-full h-20 mb-3 rounded" style={{background:"var(--sf2)"}} preserveAspectRatio="none"><polyline fill="none" stroke="var(--ac)" strokeWidth="2" points={v.c.map((y,i)=>`${i*10},${80-y*.8}`).join(" ")}/></svg>
+  <div className="mb-2">Uptime: {Math.floor(up/60)}m {up%60}s</div><div className="font-medium mb-1">Running applications ({wins.length})</div>
+  {wins.length?wins.map(w=><div key={w.id} className="flex justify-between py-1 border-b" style={{borderColor:"var(--bd)"}}><span>{APPS[w.app][0]}</span><span style={{color:"var(--mu)"}}>{w.min?"minimized":"active"}</span></div>):<div style={{color:"var(--mu)"}}>None</div>}</div>}
+
+function Store(){const {S,up,notify,open}=useC();const [cat,setCat]=useState("All");const [q,setQ]=useState("");const [tab,setTab]=useState("browse");
+ const cats=["All",...new Set(STORE.map(s=>s[1]))];
+ const list=STORE.map((s,i)=>[s[0],s[1],s[2],i,s[3],s[4],s[5]]).filter(s=>!s[6]&&(tab==="inst"?S.inst.includes(s[3]):(cat==="All"||s[1]===cat)&&s[0].toLowerCase().includes(q.toLowerCase())));
+ const tog=i=>{const has=S.inst.includes(i);up("inst",has?S.inst.filter(x=>x!==i):[...S.inst,i]);notify(has?"Uninstalled":"Installed",STORE[i][0]+(has?" removed (simulated)":" added to Dock (simulated)"))};
+ return <div className="flex h-full text-sm"><div className="w-40 p-2 border-r" style={{borderColor:"var(--bd)",background:"var(--sf2)"}}>
+  <button className="it w-full text-left px-2 py-1.5 rounded-lg" style={tab==="inst"?{background:"var(--ac)",color:"#fff"}:{}} onClick={()=>setTab("inst")}>Installed ({S.inst.length})</button>
+  <button className="it w-full text-left px-2 py-1.5 rounded-lg" style={tab==="pkg"?{background:"var(--ac)",color:"#fff"}:{}} onClick={()=>setTab("pkg")}>My Packages</button>{cats.map(c=><button key={c} className="it w-full text-left px-2 py-1.5 rounded-lg" style={tab==="browse"&&cat===c?{background:"var(--ac)",color:"#fff"}:{}} onClick={()=>{setTab("browse");setCat(c)}}>{c}</button>)}</div>
+  <div className="flex-1 p-3 overflow-auto">{tab==="browse"&&<input className="w-full mb-3" placeholder="Search apps" value={q} onChange={e=>setQ(e.target.value)}/>}
+   {tab==="pkg"&&<PkgManager/>}{tab!=="pkg"&&list.length===0&&<div className="text-center py-12" style={{color:"var(--mu)"}}>Nothing here</div>}
+   <div className="grid grid-cols-2 gap-3">{tab!=="pkg"&&list.map(([n,c,ic,i,ap,ds])=><div key={i} className="p-3 rounded-xl flex items-center gap-3" style={{background:"var(--sf2)"}}><div className="w-11 h-11 rounded-xl flex items-center justify-center text-white" style={{background:"linear-gradient(135deg,var(--ac),#7a5cff)"}}><I n={ic} s={22}/></div><div className="flex-1"><div className="font-medium">{n}</div><div className="text-xs" style={{color:"var(--mu)"}}>{c}{S.inst.includes(i)&&<span style={{color:"var(--ac)"}}> · Installed</span>}</div>{ds&&<div className="text-xs mt-0.5">{ds}</div>}</div><div className="flex flex-col gap-1">{S.inst.includes(i)&&<button className="btn" onClick={()=>open(ap||"browser")}>Launch</button>}<button className="btn" onClick={()=>tog(i)}>{S.inst.includes(i)?"Uninstall":"Install"}</button></div></div>)}</div></div></div>}
+
+function SettingsApp({w}){const {S,up,reset,notify}=useC();const [sec,setSec]=useState(w.arg||"appearance");
+ const secs=[["profile","Profile","User"],["appearance","Appearance","Palette"],["wallpaper","Wallpaper","Image"],["dock","Dock","PanelBottom"],["display","Display","Monitor"],["sound","Sound","Volume2"],["system","System","Cpu"],["about","About","Info"]];
+ return <div className="flex h-full text-sm"><div className="w-44 p-2 border-r" style={{borderColor:"var(--bd)",background:"var(--sf2)"}}>{secs.map(([id,l,ic])=><button key={id} onClick={()=>setSec(id)} className="it w-full flex items-center gap-2 px-2 py-1.5 rounded-lg" style={sec===id?{background:"var(--ac)",color:"#fff"}:{}}><I n={ic} s={15}/>{l}</button>)}</div>
+  <div className="flex-1 p-5 overflow-auto">
+  {sec==="profile"&&<ProfileSec/>}{sec==="appearance"&&<><SRow l="Theme"><SSeg k="light" opts={[[0,"Dark"],[1,"Light"]]}/></SRow><SRow l="Accent color"><div className="flex gap-2"><label title="Custom color" className="w-7 h-7 rounded-full cursor-pointer overflow-hidden" style={{background:"conic-gradient(red,yellow,lime,aqua,blue,magenta,red)"}}><input type="color" value={S.acc} onChange={e=>up("acc",e.target.value)} className="opacity-0 w-full h-full cursor-pointer"/></label>{ACC.map(a=><button key={a} onClick={()=>up("acc",a)} className="w-7 h-7 rounded-full" style={{background:a,outline:S.acc===a?"2px solid var(--tx)":"none",outlineOffset:2}}/>)}</div></SRow></>}
+  {sec==="wallpaper"&&<div className="grid grid-cols-2 gap-3">{WALLS.map(([n,g],i)=><button key={n} onClick={()=>up("wall",i)} className="h-24 rounded-xl text-white text-xs flex items-end p-2" style={{background:g,outline:S.wall===i?"2px solid var(--ac)":"none"}}>{n}</button>)}
+   {S.cw&&<button onClick={()=>up("wall",-1)} className="h-24 rounded-xl text-white text-xs flex items-end p-2" style={{background:`url(${S.cw}) center/cover`,outline:S.wall===-1?"2px solid var(--ac)":"none"}}>Custom</button>}
+   <label title="Add custom wallpaper (PNG, JPG, WEBP)" className="h-24 rounded-xl flex items-center justify-center text-3xl cursor-pointer" style={{background:"#6b6f80",color:"#fff"}}>+<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={e=>{const f=e.target.files[0];e.target.value="";readImg(f).then(r=>{up("cw",shrink(r.im));up("wall",-1)}).catch(er=>notify("Wallpaper not changed",er.message))}}/></label></div>}
+  {sec==="dock"&&<><SRow l="Position"><SSeg k="dock" opts={[["left","Left"],["bottom","Bottom"],["right","Right"]]}/></SRow><SRow l="Auto-hide"><SSeg k="hide" opts={[[0,"Off"],[1,"On"]]}/></SRow></>}
+  {sec==="display"&&<SRow l={"Brightness ("+S.br+"%)"}><input type="range" min="10" max="100" value={S.br} onChange={e=>up("br",+e.target.value)} style={{accentColor:S.acc,padding:0}}/></SRow>}
+  {sec==="sound"&&<><SRow l={"Volume ("+S.vol+"%)"}><input type="range" min="0" max="100" value={S.vol} onChange={e=>up("vol",+e.target.value)} style={{accentColor:S.acc,padding:0}}/></SRow><div className="text-xs mt-3" style={{color:"var(--mu)"}}>Sound is simulated; no audio plays.</div></>}
+  {sec==="system"&&<><SRow l="Resolution"><span>{innerWidth}×{innerHeight}</span></SRow><SRow l="Browser"><span className="text-xs truncate w-64 text-right">{navigator.userAgent.slice(0,60)}</span></SRow><SRow l="Reset N1ceOS"><button className="btn" onClick={reset}>Reset…</button></SRow></>}
+  {sec==="about"&&<div className="text-center pt-8"><div className="w-20 h-20 rounded-3xl mx-auto flex items-center justify-center text-white text-3xl font-bold" style={{background:"linear-gradient(135deg,var(--ac),#a07bff)"}}>N1</div><div className="text-xl font-semibold mt-3">N1ceOS</div><div style={{color:"var(--mu)"}}>Version 1.0</div><div className="mt-1">Developer: Cr1sN1ce</div></div>}
+  </div></div>}
+
+const GL={p:"♟",n:"♞",b:"♝",r:"♜",q:"♛",k:"♚"},CV={p:100,n:320,b:330,r:500,q:900,k:0};
+const cBoard=g=>{const r=[];for(let y=0;y<8;y++){const row=[];for(let x=0;x<8;x++){const p=g.get("abcdefgh"[x]+(8-y));row.push(p?{type:p.type,color:p.color}:null)}r.push(row)}return r};
+const cEv=g=>{let s=0;cBoard(g).forEach((r,y)=>r.forEach((p,x)=>{if(p){const c=7-Math.abs(3.5-x)-Math.abs(3.5-y)-3.5;const v=CV[p.type]+c*(p.type==="p"||p.type==="n"?6:2);s+=p.color==="w"?v:-v}}));return s};
+const cSr=(g,d,a,b)=>{if(g.in_checkmate())return g.turn()==="w"?-99999-d:99999+d;if(g.in_draw())return 0;if(!d)return cEv(g);const w=g.turn()==="w";let best=w?-1e9:1e9;for(const m of g.moves()){g.move(m);const v=cSr(g,d-1,a,b);g.undo();if(w){best=Math.max(best,v);a=Math.max(a,v)}else{best=Math.min(best,v);b=Math.min(b,v)}if(b<=a)break}return best};
+const cBest=(g,d)=>{const ms=g.moves();if(!ms.length)return null;if(d===1&&Math.random()<.35)return ms[Math.floor(Math.random()*ms.length)];ms.sort(()=>Math.random()-.5);let b=null,bv=1e9;for(const m of ms){g.move(m);const v=cSr(g,d-1,-1e9,1e9);g.undo();if(v<bv){bv=v;b=m}}return b};
+const THEMES=[["#f0d9b5","#b58863"],["#cfd6e6","#5f6b8a"],["#e4e4e4","#6b6b75"]];
+function ChessApp(){const {notify}=useC();
+ const g=useRef(new Chess());const redo=useRef([]);const tok=useRef(0);const done=useRef(0);
+ const [v,bump]=useState(0);const rb=()=>bump(x=>x+1);
+ const [mode,setMode]=useState("ai");const [diff,setDiff]=useState(2);const [flip,setFlip]=useState(0);const [th,setTh]=useState(0);
+ const [sel,setSel]=useState(null);const [promo,setPromo]=useState(null);const [tc,setTc]=useState(0);const [clk,setClk]=useState({w:0,b:0});
+ const [res,setRes]=useState(null);const [busy,setBusy]=useState(0);const [st,setSt]=useState(()=>ld("n1_cst",{w:0,l:0,d:0}));
+ const [sz,setSz]=useState(400);const wr=useRef();
+ useEffect(()=>{const ro=new ResizeObserver(()=>{const r=wr.current;r&&setSz(Math.max(200,Math.min(r.clientWidth,r.clientHeight)-8))});ro.observe(wr.current);return()=>ro.disconnect()},[]);
+ const chk=to=>{const G=g.current;let r=to||null;if(!r){if(G.in_checkmate())r=(G.turn()==="w"?"Black":"White")+" wins by checkmate";else if(G.in_stalemate())r="Draw by stalemate";else if(G.in_draw())r="Draw (50-move, repetition or material)"}
+  setRes(r);if(r&&!done.current){done.current=1;if(mode==="ai"){const o=ld("n1_cst",{w:0,l:0,d:0});const dr=r.startsWith("Draw"),wn=r.startsWith("White");const n={w:o.w+(wn?1:0),l:o.l+(!wn&&!dr?1:0),d:o.d+(dr?1:0)};setSt(n);sv("n1_cst",n)}}if(!r)done.current=0};
+ useEffect(()=>{if(v)sv("n1_chess",{pgn:g.current.pgn(),mode,diff,tc,clk})},[v]);
+ useEffect(()=>{if(!tc||res||!g.current.history().length)return;const i=setInterval(()=>{const t=g.current.turn();setClk(c=>({...c,[t]:Math.max(0,c[t]-1)}))},1000);return()=>clearInterval(i)},[tc,res,v]);
+ useEffect(()=>{if(tc&&!res&&(clk.w===0||clk.b===0)&&g.current.history().length)chk((clk.w===0?"Black":"White")+" wins on time")},[clk]);
+ const newGame=t=>{g.current=new Chess();redo.current=[];tok.current++;setBusy(0);setSel(null);setPromo(null);setRes(null);done.current=0;setClk({w:t,b:t});rb()};
+ const doMove=(from,to,pr)=>{const G=g.current;const ms=G.moves({square:from,verbose:true}).filter(m=>m.to===to);if(!ms.length)return false;
+  if(ms[0].flags.includes("p")&&!pr){setPromo({from,to});return true}
+  G.move({from,to,promotion:pr});redo.current=[];setSel(null);setPromo(null);chk();rb();
+  if(mode==="ai"&&!G.game_over()&&G.turn()==="b"){const t=++tok.current;setBusy(1);setTimeout(()=>{if(t!==tok.current||G!==g.current)return;const m=cBest(G,diff);if(m)G.move(m);chk();setBusy(0);rb()},60)}return true};
+ const undo=()=>{const G=g.current;tok.current++;setBusy(0);let n=mode==="ai"&&G.turn()==="w"?2:1;while(n--){const m=G.undo();if(m)redo.current.push(m)}setSel(null);setRes(null);done.current=0;chk();rb()};
+ const rd=()=>{const G=g.current;let n=mode==="ai"?2:1;while(n--&&redo.current.length)G.move(redo.current.pop());setSel(null);chk();rb()};
+ const resume=()=>{const s=ld("n1_chess",null);if(!s)return notify("No saved game");const G=new Chess();if(s.pgn&&!G.load_pgn(s.pgn))return notify("Save is corrupt");g.current=G;tok.current++;redo.current=[];setMode(s.mode);setDiff(s.diff);setTc(s.tc);setClk(s.clk);setSel(null);setRes(null);done.current=0;chk();rb()};
+ const click=sq=>{if(res||busy||promo)return;const G=g.current;if(sel&&sel!==sq&&doMove(sel,sq))return;const p=G.get(sq);if(p&&p.color===G.turn()&&(mode!=="ai"||p.color==="w"))setSel(sq===sel?null:sq);else setSel(null)};
+ const G=g.current;const bd=cBoard(G);const h=G.history({verbose:true});const lm=h[h.length-1];const files="abcdefgh";
+ const tg=sel?G.moves({square:sel,verbose:true}).map(m=>m.to):[];const ck=G.in_check()?G.turn():null;
+ const cap=c=>{const s={p:8,n:2,b:2,r:2,q:1},n={p:0,n:0,b:0,r:0,q:0};bd.flat().forEach(p=>p&&p.color===c&&p.type!=="k"&&n[p.type]++);return Object.keys(s).flatMap(t=>Array(Math.max(0,s[t]-n[t])).fill(GL[t])).join("")};
+ const fmt=s=>Math.floor(s/60)+":"+String(s%60).padStart(2,"0");const cs=sz/8;const T=THEMES[th];
+ const sqs=[];for(let y=0;y<8;y++)for(let x=0;x<8;x++){const ry=flip?7-y:y,rx=flip?7-x:x;const nm=files[rx]+(8-ry);const p=bd[ry][rx];const dark=(rx+ry)%2===1;
+  let bg=dark?T[1]:T[0];if(lm&&(lm.from===nm||lm.to===nm))bg="#c9b84a";if(sel===nm)bg="var(--ac)";if(p&&p.type==="k"&&p.color===ck)bg="#d9534f";
+  sqs.push(<div key={nm} onClick={()=>click(nm)} className="relative flex items-center justify-center" style={{width:cs,height:cs,background:bg,cursor:"pointer"}}>
+   {p&&<span style={{fontSize:cs*.78,lineHeight:1,color:p.color==="w"?"#fff":"#15151c",textShadow:p.color==="w"?"0 0 2px #000,0 1px 3px #000":"0 0 2px #fff8"}}>{GL[p.type]}</span>}
+   {tg.includes(nm)&&<span className="absolute rounded-full" style={p?{inset:2,border:"3px solid #0008"}:{width:cs*.3,height:cs*.3,background:"#0006"}}/>}</div>)}
+ const hist=G.history();const pairs=[];for(let i=0;i<hist.length;i+=2)pairs.push((i/2+1)+". "+hist[i]+" "+(hist[i+1]||""));
+ return <div className="flex h-full text-xs"><div ref={wr} className="flex-1 min-w-0 flex items-center justify-center p-1"><div className="relative flex flex-wrap rounded-lg overflow-hidden" style={{width:sz,height:sz,boxShadow:"0 10px 30px #0008"}}>{sqs}
+  {promo&&<div className="absolute inset-0 flex items-center justify-center gap-2" style={{background:"#000a"}}>{["q","r","b","n"].map(t=><button key={t} className="btn" style={{fontSize:cs*.6}} onClick={()=>doMove(promo.from,promo.to,t)}>{GL[t]}</button>)}</div>}</div></div>
+  <div className="w-52 shrink-0 p-2 overflow-auto border-l" style={{borderColor:"var(--bd)",background:"var(--sf2)"}}>
+   <CSel val={mode} set={m=>{setMode(m);newGame(tc)}} opts={[["ai","Player vs Computer"],["local","Local multiplayer"],["free","Free analysis"]]}/>
+   {mode==="ai"&&<CSel val={diff} set={setDiff} opts={[[1,"Easy"],[2,"Medium"],[3,"Hard"]]}/>}
+   <CSel val={tc} set={t=>{setTc(t);newGame(t)}} opts={[[0,"No clock"],[180,"3 min"],[300,"5 min"],[600,"10 min"]]}/>
+   <div className="grid grid-cols-3 gap-1 mb-2">{[["New",()=>newGame(tc)],["Undo",undo],["Redo",rd],["Flip",()=>setFlip(!flip)],["Theme",()=>setTh((th+1)%3)],["Save",()=>{sv("n1_chess",{pgn:G.pgn(),mode,diff,tc,clk});notify("Game saved")}],["Resume",resume]].map(([l,f])=><button key={l} className="btn" onClick={f}>{l}</button>)}</div>
+   <div className="p-2 rounded-lg mb-2" style={{background:"var(--bg)"}}><div className="flex justify-between"><span>Black {tc?fmt(clk.b):""}</span><span>{cap("w")}</span></div><div className="flex justify-between"><span>White {tc?fmt(clk.w):""}</span><span>{cap("b")}</span></div></div>
+   <div className="mb-2 font-medium" style={{color:res?"var(--ac)":"var(--tx)"}}>{res||((G.in_check()?"Check! ":"")+(G.turn()==="w"?"White":"Black")+" to move"+(busy?" (thinking…)":""))}</div>
+   <div className="mb-2 p-2 rounded-lg overflow-auto" style={{background:"var(--bg)",maxHeight:140,userSelect:"text"}}>{pairs.length?pairs.map(p=><div key={p}>{p}</div>):"No moves yet"}</div>
+   <div style={{color:"var(--mu)"}}>Vs computer: {st.w}W {st.l}L {st.d}D · Moves: {hist.length}</div></div></div>}
+
+let AC;const W=400,H=700,PR=34,UR=18,GW=150;
+const snd=(c,f,d=.1)=>{if(c.mute)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const o=AC.createOscillator(),g=AC.createGain();o.frequency.value=f;g.gain.value=.05;g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+d);o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+d)}catch{}};
+const hkInit=()=>({pk:{x:W/2,y:H/2,vx:0,vy:0},a:{x:W/2,y:H-90,px:W/2,py:H-90,tx:W/2,ty:H-90},b:{x:W/2,y:90,px:W/2,py:90,tx:W/2,ty:90,ms:16},keys:{},pause:0,wait:60,sc:[0,0],over:0,fl:0,flt:""});
+const mvP=(p,y0,y1,ms)=>{p.px=p.x;p.py=p.y;p.tx=Math.max(PR,Math.min(W-PR,p.tx));p.ty=Math.max(y0,Math.min(y1,p.ty));const dx=p.tx-p.x,dy=p.ty-p.y,d=Math.hypot(dx,dy);if(d>ms){p.x+=dx/d*ms;p.y+=dy/d*ms}else{p.x=p.tx;p.y=p.ty}};
+const hkAI=(s,c)=>{const k=s.pk,b=s.b;b.ms=[6,9.5,13.5][c.diff];if(k.y<H/2+10){if(b.y<k.y-16&&Math.abs(b.x-k.x)<PR){b.tx=k.x;b.ty=k.y+50}else if(b.y>=k.y-16){b.tx=k.x+(k.x<W/2?45:-45);b.ty=Math.max(40,k.y-60)}else{b.tx=k.x;b.ty=k.y-48}}else{b.tx=W/2+(k.x-W/2)*.45;b.ty=75}};
+const hkDraw=(x,s)=>{x.clearRect(0,0,W,H);const g=x.createLinearGradient(0,0,0,H);g.addColorStop(0,"#1a0d24");g.addColorStop(.5,"#0d1224");g.addColorStop(1,"#0b1a2e");x.fillStyle=g;x.fillRect(0,0,W,H);x.lineWidth=3;x.strokeStyle="#6c8cff55";x.strokeRect(2,2,W-4,H-4);x.strokeStyle="#ffffff33";x.beginPath();x.moveTo(0,H/2);x.lineTo(W,H/2);x.stroke();x.beginPath();x.arc(W/2,H/2,60,0,7);x.stroke();
+ for(const [y,c] of [[0,"#ff3b5c"],[H,"#3b8cff"]]){x.save();x.shadowColor=c;x.shadowBlur=25;x.fillStyle=c;x.fillRect(W/2-GW/2,y-4,GW,8);x.restore()}
+ const pd=(p,c)=>{x.save();x.shadowColor=c;x.shadowBlur=22;const r=x.createRadialGradient(p.x-8,p.y-8,4,p.x,p.y,PR);r.addColorStop(0,"#fff");r.addColorStop(.35,c);r.addColorStop(1,"#000a");x.fillStyle=r;x.beginPath();x.arc(p.x,p.y,PR,0,7);x.fill();x.restore()};pd(s.b,"#ff3b5c");pd(s.a,"#3b8cff");
+ const k=s.pk;x.save();x.shadowColor="#fff";x.shadowBlur=18;x.fillStyle="#f4f6ff";x.beginPath();x.arc(k.x,k.y,UR,0,7);x.fill();x.restore();
+ if(s.fl>0){x.fillStyle=`rgba(255,255,255,${s.fl/200})`;x.fillRect(0,0,W,H);x.fillStyle="#fff";x.font="bold 34px Inter,sans-serif";x.textAlign="center";x.fillText(s.flt,W/2,H/2);s.fl--}};
+function Hockey(){const cv=useRef(),bx=useRef();
+ const [cfg,setCfg]=useState(()=>({mode:"ai",diff:1,target:5,mute:0,...ld("n1_hk",{})}));const cr=useRef(cfg);cr.current=cfg;
+ const [score,setScore]=useState([0,0]);const [paused,setPaused]=useState(0);const [over,setOver]=useState(null);const [sc,setSc]=useState(.6);const R=useRef(hkInit());
+ useEffect(()=>sv("n1_hk",cfg),[cfg]);
+ useEffect(()=>{const ro=new ResizeObserver(()=>{const r=bx.current;r&&setSc(Math.max(.3,Math.min(r.clientWidth/W,r.clientHeight/H)))});ro.observe(bx.current);return()=>ro.disconnect()},[]);
+ useEffect(()=>{let raf;const ctx=cv.current.getContext("2d");
+  const goal=(s,who)=>{const c=cr.current;s.sc[who]++;setScore([...s.sc]);s.fl=70;s.flt=(who?"BLUE":"RED")+" SCORES!";snd(c,120,.4);if(s.sc[who]>=c.target){s.over=1;setOver(who)}const k=s.pk;k.x=W/2;k.y=H/2;k.vx=k.vy=0;s.wait=70};
+  const step=(s,c)=>{const K=s.keys,sp=11;if(K.w)s.a.ty-=sp;if(K.s)s.a.ty+=sp;if(K.a)s.a.tx-=sp;if(K.d)s.a.tx+=sp;
+   if(c.mode==="two"){s.b.ms=16;if(K.ArrowUp)s.b.ty-=sp;if(K.ArrowDown)s.b.ty+=sp;if(K.ArrowLeft)s.b.tx-=sp;if(K.ArrowRight)s.b.tx+=sp}else hkAI(s,c);
+   mvP(s.a,H/2+PR/2,H-PR,16);mvP(s.b,PR,H/2-PR/2,s.b.ms);if(s.wait>0){s.wait--;return}
+   const N=4,k=s.pk;for(let i=0;i<N;i++){k.x+=k.vx/N;k.y+=k.vy/N;k.vx*=.9985;k.vy*=.9985;
+    if(k.x<UR){k.x=UR;k.vx=Math.abs(k.vx)*.95;Math.abs(k.vx)>2&&snd(c,220,.05)}if(k.x>W-UR){k.x=W-UR;k.vx=-Math.abs(k.vx)*.95;Math.abs(k.vx)>2&&snd(c,220,.05)}
+    const ig=Math.abs(k.x-W/2)<GW/2;if(k.y<UR&&!ig){k.y=UR;k.vy=Math.abs(k.vy)*.95}if(k.y>H-UR&&!ig){k.y=H-UR;k.vy=-Math.abs(k.vy)*.95}
+    if(k.y<-UR){goal(s,1);return}if(k.y>H+UR){goal(s,0);return}
+    for(const p of [s.a,s.b]){const dx=k.x-p.x,dy=k.y-p.y,d=Math.hypot(dx,dy),m=PR+UR;if(d<m){const nx=dx/(d||1),ny=dy/(d||1);k.x=p.x+nx*m;k.y=p.y+ny*m;const rel=(k.vx-(p.x-p.px))*nx+(k.vy-(p.y-p.py))*ny;if(rel<0){k.vx-=1.9*rel*nx;k.vy-=1.9*rel*ny;snd(c,440,.07)}}}
+    const v=Math.hypot(k.vx,k.vy);if(v>22){k.vx*=22/v;k.vy*=22/v}}};
+  const loop=()=>{raf=requestAnimationFrame(loop);const s=R.current;if(!cv.current||!cv.current.offsetParent)return;if(!s.pause&&!s.over)step(s,cr.current);hkDraw(ctx,s)};raf=requestAnimationFrame(loop);return()=>cancelAnimationFrame(raf)},[]);
+ const restart=c=>{R.current=hkInit();setScore([0,0]);setOver(null);setPaused(0);c&&setCfg(c)};
+ const pz=()=>{if(R.current.over)return;R.current.pause=!R.current.pause;setPaused(R.current.pause?1:0)};
+ const mm=e=>{const r=cv.current.getBoundingClientRect();R.current.a.tx=(e.clientX-r.left)/r.width*W;R.current.a.ty=(e.clientY-r.top)/r.height*H};
+ const key=(e,d)=>{const k=e.key.length===1?e.key.toLowerCase():e.key;if(k.startsWith("Arrow"))e.preventDefault();if(k==="p"&&d)pz();R.current.keys[k]=d};
+ const win=over===null?null:cfg.mode==="ai"?(over===0?"VICTORY":"DEFEAT"):(over===0?"PLAYER 1 WINS":"PLAYER 2 WINS");
+ return <div className="h-full flex flex-col text-xs outline-none" tabIndex={0} onKeyDown={e=>key(e,true)} onKeyUp={e=>key(e,false)} onMouseDown={e=>e.currentTarget.focus()}>
+  <div className="flex items-center gap-2 p-2 flex-wrap" style={{background:"var(--sf2)"}}>
+   <b className="text-base" style={{color:"#ff3b5c"}}>{score[1]}</b><span>:</span><b className="text-base" style={{color:"#3b8cff"}}>{score[0]}</b>
+   <button className="btn" onClick={pz}>{paused?"Resume":"Pause"}</button><button className="btn" onClick={()=>restart()}>Restart</button><button className="btn" onClick={()=>setCfg({...cfg,mute:cfg.mute?0:1})}>{cfg.mute?"Unmute":"Mute"}</button>
+   <HSel val={cfg.mode} set={m=>restart({...cfg,mode:m})} opts={[["ai","1 Player"],["two","2 Players"]]}/>
+   <HSel val={cfg.diff} set={d=>setCfg({...cfg,diff:+d})} opts={[[0,"Easy"],[1,"Normal"],[2,"Hard"]]}/>
+   <HSel val={cfg.target} set={t=>restart({...cfg,target:+t})} opts={[[5,"First to 5"],[7,"First to 7"],[10,"First to 10"]]}/>
+   <span style={{color:"var(--mu)"}}>Mouse/WASD · Arrows (P2) · P pause</span></div>
+  <div ref={bx} className="flex-1 min-h-0 flex items-center justify-center relative" style={{background:"#07080d"}}>
+   <canvas ref={cv} width={W} height={H} onMouseMove={mm} style={{width:W*sc,height:H*sc,borderRadius:16,cursor:"none",boxShadow:"0 0 40px #6c8cff33"}}/>
+   {paused&&!win?<div className="absolute text-2xl font-bold text-white">PAUSED</div>:null}
+   {win&&<div className="absolute inset-0 flex flex-col items-center justify-center gap-3 win" style={{background:"#000b"}}><div className="text-4xl font-black" style={{color:win==="DEFEAT"?"#ff3b5c":"#3ecfb2",textShadow:"0 0 20px currentColor"}}>{win}</div><div className="text-lg text-white">{score[1]} : {score[0]}</div><button className="btn" onClick={()=>restart()}>Play again</button></div>}</div></div>}
+
+const isEl=!!(window.n1ce&&window.n1ce.electron);
+const NT="n1ce://newtab",isInt=u=>u.startsWith("n1ce://");
+const ENG={ddg:["DuckDuckGo","https://duckduckgo.com/?q="],google:["Google","https://www.google.com/search?q="],bing:["Bing","https://www.bing.com/search?q="],wiki:["Wikipedia","https://en.wikipedia.org/w/index.php?search="]};
+const DEF_SC=[["Google","https://www.google.com"],["YouTube","https://www.youtube.com"],["GitHub","https://github.com"],["Wikipedia","https://en.wikipedia.org"],["Reddit","https://www.reddit.com"],["ChatGPT","https://chatgpt.com"]];
+const bhost=u=>{try{return new URL(u).hostname}catch{return u}};
+const btitle=u=>isInt(u)?({newtab:"New Tab",history:"History",bookmarks:"Bookmarks",downloads:"Downloads",settings:"Settings",about:"About"}[u.slice(7)]||"N1ce"):bhost(u);
+const usePS=(k,d)=>{const [v,s]=useState(()=>Array.isArray(d)?ld(k,d):{...d,...ld(k,d)});useEffect(()=>sv(k,v),[v]);return [v,s]};
+const LIGHT={"--bg":"#f6f7fb","--sf2":"#e9ebf3","--tx":"#1b1d27","--mu":"#666b80","--bd":"rgba(0,0,0,.1)"},DARKV={"--bg":"#15161c","--sf2":"#262833","--tx":"#e8e9f0","--mu":"#8b8fa3","--bd":"rgba(255,255,255,.09)"};
+function WV({t,u,ut,wvs,navR,wid}){const ref=useRef();const init=useRef(u);
+ useEffect(()=>{const w=ref.current;if(!w)return;wvs.current[t.id]=w;w.dataset.fresh="1";
+  const H={"dom-ready":()=>{w.dataset.ready="1";try{w.setZoomFactor(t.z)}catch{}},
+   "did-start-loading":()=>ut(t.id,{load:1,fail:null}),"did-stop-loading":()=>ut(t.id,{load:0}),
+   "did-navigate":e=>{const r=w.dataset.fresh==="1";w.dataset.fresh="0";navR.current(t.id,e.url,r)},
+   "did-navigate-in-page":e=>{if(e.isMainFrame)navR.current(t.id,e.url,false)},
+   "page-title-updated":e=>{ut(t.id,{title:e.title});navR.current.title(w.getURL(),e.title)},
+   "did-fail-load":e=>{if(e.isMainFrame&&e.errorCode!==-3)ut(t.id,{load:0,fail:{c:e.errorCode,d:e.errorDescription,u:e.validatedURL}})},
+   "focus":()=>dispatchEvent(new CustomEvent("n1focus",{detail:wid}))};
+  Object.entries(H).forEach(([k,f])=>w.addEventListener(k,f));return()=>{delete wvs.current[t.id]}},[]);
+ useEffect(()=>{const w=ref.current;if(!w||!w.dataset.ready)return;try{if(w.getURL()!==u){w.dataset.fresh="1";w.loadURL(u)}}catch{}},[u]);
+ useEffect(()=>{const w=ref.current;if(w&&w.dataset.ready)try{w.setZoomFactor(t.z)}catch{}},[t.z]);
+ return <webview ref={ref} src={init.current} partition={"persist:n1b-"+(window.N1UID||"x")} allowpopups="true" style={{width:"100%",height:"100%",display:"flex"}}/>}
+function Browser({w}){const {notify,open}=useC();const solo=w.arg==="new";
+ const [bs,setBs]=usePS("n1b_set",{eng:"ddg",home:NT,theme:"dark",acc:"#6c8cff",bar:1,start:"restore",priv:0,wall:0});
+ const [bm,setBm]=usePS("n1b_bm",[]);const [fo,setFo]=usePS("n1b_fo",[]);const [hi,setHi]=usePS("n1b_h",[]);const [dl,setDl]=usePS("n1b_dl",[]);const [sc,setSc]=usePS("n1b_sc",DEF_SC);
+ const mk=(u=NT)=>({id:nid(),h:[u],i:0,z:1,load:0,force:0,rk:0});
+ const saved=useRef(ld("n1b_tabs",null));
+ const [tabs,setTabs]=useState(()=>{const s=saved.current;if(!solo&&bs.start==="restore"&&s&&s.t&&s.t.length)return s.t.map(t=>({...t,load:0,force:0,rk:0}));return [mk(bs.start==="home"&&!solo?bs.home:NT)]});
+ const [aid,setAid]=useState(()=>!solo&&saved.current?saved.current.a:null);
+ const tab=tabs.find(t=>t.id===aid)||tabs[0];const cur=tab.h[tab.i];
+ const closed=useRef([]);const wvs=useRef({}),tabsR=useRef(),navR=useRef(),kdR=useRef(),ntR=useRef();tabsR.current=tabs;const root=useRef();const oi=useRef();const dg=useRef();const dgs=useRef();
+ const [q,setQ]=useState("");const [find,setFind]=useState(null);const [menu,setMenu]=useState(0);const [hq,setHq]=useState("");const [bq,setBq]=useState("");const [du,setDu]=useState("");const [now,setNow]=useState(new Date());
+ useEffect(()=>{if(!solo)sv("n1b_tabs",{t:tabs.map(({id,h,i,z})=>({id,h,i,z})),a:tab.id})},[tabs,aid]);
+ useEffect(()=>{const i=setInterval(()=>setNow(new Date()),15000);return()=>clearInterval(i)},[]);
+ useEffect(()=>{if(!isEl)return;const n=window.n1ce;const o=[
+  n.onDownload(d=>setDl(l=>{const ex=l.find(x=>x.id===d.id);const e={...ex,...d,ty:((d.name||ex.name).split(".").pop()||"file").toLowerCase(),ts:ex?ex.ts:Date.now()};return ex?l.map(x=>x.id===d.id?e:x):[e,...l]})),
+  n.onOpenUrl(u=>ntR.current(u)),
+  n.onKey(k=>kdR.current({ctrlKey:k.ctrl,metaKey:k.meta,shiftKey:k.shift,altKey:k.alt,key:k.key,preventDefault(){},stopPropagation(){}}))];
+  return()=>o.forEach(f=>f&&f())},[]);
+ useEffect(()=>{setQ(isInt(cur)?"":cur)},[cur,tab.id]);
+ useEffect(()=>{if(!tab.load)return;const t=setTimeout(()=>ut(tab.id,{load:0}),9000);return()=>clearTimeout(t)},[tab.id,tab.rk,cur,tab.load]);
+ const ut=(id,p)=>setTabs(ts=>ts.map(t=>t.id===id?{...t,...(typeof p==="function"?p(t):p)}:t));
+ const rec=(u,t,qq)=>{if(!bs.priv&&!isInt(u))setHi(h=>[{u,t,ts:Date.now(),q:qq},...h].slice(0,1000))};
+ const nav=(u,id=tab.id)=>{ut(id,t=>({h:[...t.h.slice(0,t.i+1),u],i:t.i+1,load:isInt(u)?0:1,force:0}));rec(u,btitle(u))};
+ const resolve=s=>{s=s.trim();if(!s)return null;if(isInt(s)||/^https?:\/\//i.test(s))return s;if(/^[^\s]+\.[a-z]{2,}(:\d+)?([\/?#].*)?$/i.test(s)||/^localhost(:\d+)?/.test(s))return(/^localhost|^\d+\.\d+\.\d+\.\d+/.test(s)?"http://":"https://")+s;return null};
+ const go=s=>{const u=resolve(s);if(u)return nav(u);if(!s.trim())return;const su=ENG[bs.eng][1]+encodeURIComponent(s.trim());ut(tab.id,t=>({h:[...t.h.slice(0,t.i+1),su],i:t.i+1,load:1,force:0}));rec(su,"Search: "+s.trim(),s.trim())};
+ const wvNav=(id,url,rep)=>{const t=tabsR.current.find(x=>x.id===id);if(!t||t.h[t.i]===url)return;if(rep){const h=[...t.h];h[t.i]=url;ut(id,{h})}else ut(id,{h:[...t.h.slice(0,t.i+1),url],i:t.i+1});rec(url,btitle(url))};
+ navR.current=wvNav;wvNav.title=(url,title)=>setHi(h=>{let d=0;return h.map(x=>!d&&x.u===url&&!x.q?(d=1,{...x,t:title}):x)});
+ const newTab=(u=NT)=>{const t=mk(u);setTabs(ts=>[...ts,t]);setAid(t.id);if(u!==NT)rec(u,btitle(u))};
+ ntR.current=newTab;
+ const dup=t=>{const n={...t,id:nid(),load:t.h[t.i]&&!isInt(t.h[t.i])?1:0};setTabs(ts=>{const a=[...ts];a.splice(ts.indexOf(t)+1,0,n);return a});setAid(n.id)};
+ const closeTab=id=>{const t=tabs.find(x=>x.id===id);if(t)closed.current.push({h:t.h,i:t.i,z:t.z});if(tabs.length===1){const n=mk();setTabs([n]);setAid(n.id);return}const ix=tabs.findIndex(x=>x.id===id);const rest=tabs.filter(x=>x.id!==id);setTabs(rest);if(id===tab.id)setAid(rest[Math.max(0,ix-1)].id)};
+ const reopen=()=>{const c=closed.current.pop();if(!c)return notify("No recently closed tabs");const n={...mk(),...c};setTabs(ts=>[...ts,n]);setAid(n.id)};
+ const step=d=>ut(tab.id,t=>{const i=t.i+d;return i<0||i>=t.h.length?{}:{i,load:isInt(t.h[i])?0:1}});
+ const reload=()=>ut(tab.id,{load:isInt(cur)?0:1,rk:Date.now(),force:tab.force});
+ const stop=()=>{ut(tab.id,{load:0});try{wvs.current[tab.id]&&wvs.current[tab.id].stop()}catch{}notify("Loading stopped")};
+ const zoom=d=>ut(tab.id,t=>({z:d===0?1:Math.max(.3,Math.min(3,+(t.z+d).toFixed(2)))}));
+ const isBm=bm.some(b=>b.u===cur);
+ const star=()=>{if(isInt(cur))return notify("Internal pages can't be bookmarked");if(isBm){setBm(b=>b.filter(x=>x.u!==cur));notify("Bookmark removed")}else{setBm(b=>[...b,{id:nid(),t:btitle(cur),u:cur,f:""}]);notify("Bookmarked",cur)}};
+ const ext=u=>{if(isEl){window.n1ce.openExternal(u);return}window.open(u,"_blank","noopener")||notify("Pop-up blocked","Allow pop-ups to open external pages")};
+ const dlStart=u=>{u=resolve(u);if(!u||isInt(u))return notify("Enter a valid file URL");if(isEl){window.n1ce.download(u);setDu("");return}const name=decodeURIComponent((u.split(/[?#]/)[0].split("/").pop())||"download");const ty=(name.split(".").length>1?name.split(".").pop():"file").toLowerCase();
+  try{const a=document.createElement("a");a.href=u;a.download=name;a.target="_blank";a.rel="noopener";document.body.appendChild(a);a.click();a.remove()}catch(e){}
+  setDl(d=>[{id:nid(),name,ty,u,ts:Date.now(),st:"Handed to your browser's download manager — completion can't be detected from here"},...d]);setDu("")};
+ const print=()=>{const wv=wvs.current[tab.id];if(isEl&&wv&&!isInt(cur)){try{wv.print()}catch{notify("Print failed")}return}try{if(isInt(cur))throw 0;root.current.querySelector("iframe:not([hidden])").contentWindow.print()}catch{notify("Can't print this page","Cross-site pages block printing; use your system browser")}};
+ const fs_=()=>{if(document.fullscreenElement)document.exitFullscreen();else root.current.requestFullscreen?.().catch(()=>notify("Fullscreen not available"))};
+ const doFind=t=>{const wv=wvs.current[tab.id];if(isEl&&wv&&!isInt(cur)){try{t?wv.findInPage(t):wv.stopFindInPage("clearSelection")}catch{}return}try{if(!window.find(t))notify("No match on N1ce pages","Search can't look inside embedded sites")}catch{}};
+ const kd=e=>{const c=e.ctrlKey||e.metaKey,k=e.key.toLowerCase();let h=1;
+  if(c&&k==="t")e.shiftKey?reopen():newTab();else if(c&&k==="w")closeTab(tab.id);else if(c&&k==="l")root.current.querySelector("#n1b-omni").focus();else if(c&&k==="r")reload();else if(c&&k==="d")star();
+  else if(c&&k==="h")nav("n1ce://history");else if(c&&k==="j")nav("n1ce://downloads");else if(c&&k==="f")setFind(find===null?"":null);
+  else if(c&&(k==="+"||k==="="))zoom(.1);else if(c&&k==="-")zoom(-.1);else if(c&&k==="0")zoom(0);
+  else if(c&&k==="tab"){const ix=tabs.indexOf(tab);setAid(tabs[(ix+(e.shiftKey?-1:1)+tabs.length)%tabs.length].id)}
+  else if(e.altKey&&k==="arrowleft")step(-1);else if(e.altKey&&k==="arrowright")step(1);else h=0;
+  if(h){e.preventDefault();e.stopPropagation()}};
+ kdR.current=kd;
+ const th={...(bs.theme==="light"?LIGHT:bs.theme==="dark"&&bs.themeSet?DARKV:{}),...(bs.acc&&bs.acc!=="#6c8cff"?{"--ac":bs.acc}:{}),background:"var(--bg)",color:"var(--tx)"};
+ const when=ts=>new Date(ts).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+ const newtab=()=>{const freq=Object.values(hi.filter(h=>!h.q).reduce((a,h)=>{const k=bhost(h.u);a[k]=a[k]||{...h,n:0};a[k].n++;return a},{})).sort((a,b)=>b.n-a.n).slice(0,6);
+  return <div className="h-full overflow-auto flex flex-col items-center pt-8 px-6 pb-8" style={{background:bs.wall?WALLS[bs.wall-1][1]:"var(--bg)"}}>
+  <div className="text-5xl font-light">{now.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div><div className="mb-4" style={{color:"var(--mu)"}}>{now.toLocaleDateString([],{weekday:"long",month:"long",day:"numeric"})}</div>
+  <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-white mb-2" style={{background:"linear-gradient(135deg,var(--ac),#a07bff)"}}><I n="Globe" s={34}/></div><div className="text-3xl font-bold mb-4">N1ce Browser</div>
+  <input className="w-full max-w-lg rounded-full py-2.5 px-5 mb-6" placeholder={"Search with "+ENG[bs.eng][0]+" or enter address"} onKeyDown={e=>{if(e.key==="Enter")go(e.target.value)}}/>
+  <div className="flex flex-wrap gap-3 justify-center max-w-2xl mb-6">{sc.map(([n,u],i)=><div key={i} draggable onDragStart={()=>dgs.current=i} onDragOver={e=>e.preventDefault()} onDrop={()=>setSc(s=>{const a=[...s];const [m]=a.splice(dgs.current,1);a.splice(i,0,m);return a})} className="group relative w-24 p-3 rounded-2xl text-center cursor-pointer it" style={{background:"var(--sf2)"}} onClick={()=>nav(u)}>
+   <div className="w-10 h-10 mx-auto rounded-xl flex items-center justify-center text-white font-bold mb-1" style={{background:"var(--ac)"}}>{n[0].toUpperCase()}</div><div className="text-xs truncate">{n}</div>
+   <button title="Remove" className="absolute top-1 right-1 opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();setSc(s=>s.filter((_,j)=>j!==i))}}><I n="X" s={12}/></button></div>)}
+   <button className="w-24 p-3 rounded-2xl it" style={{background:"var(--sf2)"}} onClick={()=>{const n=prompt("Shortcut name");const u=n&&resolve(prompt("Address")||"");u?setSc(s=>[...s,[n,u]]):n&&notify("Invalid address")}}><I n="Plus" s={26} c="mx-auto"/><div className="text-xs mt-1">Add</div></button></div>
+  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-3xl text-xs">{[["Frequently visited",freq.map(h=>[bhost(h.u),h.u])],["Bookmarks",bm.slice(0,6).map(b=>[b.t,b.u])],["Recent",hi.filter(h=>!h.q).slice(0,6).map(h=>[h.t,h.u])]].map(([t,l])=><div key={t} className="p-3 rounded-xl" style={{background:"var(--sf2)"}}><div className="font-medium mb-1">{t}</div>{l.length?l.map(([n,u],i)=><button key={i} className="block w-full text-left truncate py-0.5 it rounded" onClick={()=>nav(u)}>{n}</button>):<div style={{color:"var(--mu)"}}>Nothing yet</div>}</div>)}</div></div>};
+ const hist=()=>{const l=hi.filter(h=>(h.t+h.u).toLowerCase().includes(hq.toLowerCase()));const g={};l.forEach(h=>{(g[new Date(h.ts).toDateString()]=g[new Date(h.ts).toDateString()]||[]).push(h)});
+  return <BPg t="History" act={<><input placeholder="Search history" value={hq} onChange={e=>setHq(e.target.value)}/><button className="btn" onClick={()=>{setHi([]);notify("History cleared")}}>Clear all</button></>}>{l.length===0&&<div style={{color:"var(--mu)"}}>No history</div>}
+  {Object.entries(g).map(([d,es])=><div key={d} className="mb-4"><div className="text-xs font-semibold mb-1" style={{color:"var(--mu)"}}>{d===new Date().toDateString()?"Today":d}</div>{es.map(h=><div key={h.ts+h.u} className="flex items-center gap-2 py-1 it rounded"><span className="w-12 text-xs" style={{color:"var(--mu)"}}>{when(h.ts)}</span><I n={h.q?"Search":"Globe"} s={13}/><button className="flex-1 text-left truncate" onClick={()=>nav(h.u)}>{h.t}</button><span className="text-xs truncate max-w-48" style={{color:"var(--mu)"}}>{h.u}</span><button title="Delete" onClick={()=>setHi(x=>x.filter(y=>y!==h))}><I n="X" s={13}/></button></div>)}</div>)}</BPg>};
+ const bmp=()=>{const l=bm.filter(b=>(b.t+b.u).toLowerCase().includes(bq.toLowerCase()));const secs=[["","Unsorted"],...fo.map(f=>[f,f])];
+  return <BPg t="Bookmarks" act={<><input placeholder="Search" value={bq} onChange={e=>setBq(e.target.value)}/><button className="btn" onClick={()=>{const n=prompt("Name");const u=n&&resolve(prompt("Address")||"");u?setBm(b=>[...b,{id:nid(),t:n,u,f:""}]):n&&notify("Invalid address")}}>Add</button><button className="btn" onClick={()=>{const f=prompt("Folder name");f&&!fo.includes(f)&&setFo(x=>[...x,f])}}>New folder</button></>}>{bm.length===0&&<div style={{color:"var(--mu)"}}>No bookmarks yet — press the star in the address bar (Ctrl+D).</div>}
+  {secs.map(([f,n])=>{const it=l.filter(b=>b.f===f);if(!it.length&&f==="")return null;return <div key={n} className="mb-4"><div className="text-xs font-semibold mb-1 flex items-center gap-1" style={{color:"var(--mu)"}}><I n="Folder" s={13}/>{n}{f&&<button className="ml-2" onClick={()=>{setFo(x=>x.filter(y=>y!==f));setBm(b=>b.map(x=>x.f===f?{...x,f:""}:x))}}><I n="X" s={12}/></button>}</div>{it.map(b=><div key={b.id} className="flex items-center gap-2 py-1 it rounded"><button className="flex-1 text-left truncate" onClick={()=>nav(b.u)}>{b.t}</button><span className="text-xs truncate max-w-48" style={{color:"var(--mu)"}}>{b.u}</span>
+   <button title="Edit" onClick={()=>{const t=prompt("Name",b.t);if(t===null)return;const u=resolve(prompt("Address",b.u)||"");u?setBm(x=>x.map(y=>y===b?{...b,t,u}:y)):notify("Invalid address")}}><I n="Pencil" s={13}/></button>
+   <button title="Move to folder" onClick={()=>{const t=prompt("Folder (blank = unsorted). Existing: "+fo.join(", "),b.f);if(t!==null){t&&!fo.includes(t)&&setFo(x=>[...x,t]);setBm(x=>x.map(y=>y===b?{...b,f:t}:y))}}}><I n="FolderInput" s={13}/></button><button title="Delete" onClick={()=>setBm(x=>x.filter(y=>y!==b))}><I n="Trash2" s={13}/></button></div>)}</div>})}</BPg>};
+ const dlp=()=><BPg t="Downloads" act={<button className="btn" onClick={()=>setDl([])}>Clear list</button>}><div className="text-xs mb-3 p-2 rounded-lg" style={{background:"var(--sf2)",color:"var(--mu)"}}>Websites inside the frame can't report downloads to N1ce Browser. Files you request below are passed to your real browser, which decides whether they succeed.</div>
+  <div className="flex gap-2 mb-4"><input className="flex-1" placeholder="File URL to download" value={du} onChange={e=>setDu(e.target.value)} onKeyDown={e=>e.key==="Enter"&&dlStart(du)}/><button className="btn" onClick={()=>dlStart(du)}>Download</button></div>
+  {dl.length===0&&<div style={{color:"var(--mu)"}}>No downloads</div>}{dl.map(d=><div key={d.id} className="flex items-center gap-3 py-2 border-b" style={{borderColor:"var(--bd)"}}><I n="FileDown" s={20}/><div className="flex-1 min-w-0"><div className="truncate">{d.name} <span className="text-xs uppercase" style={{color:"var(--mu)"}}>.{d.ty}</span></div><div className="text-xs" style={{color:"var(--mu)"}}>{new Date(d.ts).toLocaleString()} · {d.st}</div></div><button className="btn" onClick={()=>isEl&&d.path?window.n1ce.showFile(d.path):ext(d.u)}>{isEl&&d.path?"Show":"Open"}</button><button title="Remove" onClick={()=>setDl(x=>x.filter(y=>y!==d))}><I n="X" s={14}/></button></div>)}</BPg>;
+ const set_=()=>{const R=(l,c)=><div className="flex items-center justify-between py-2 border-b" style={{borderColor:"var(--bd)"}}><span>{l}</span>{c}</div>;const up=(k,v)=>setBs(s=>({...s,[k]:v,...(k==="theme"?{themeSet:1}:{})}));
+  return <BPg t="Settings"><BSec t="General & Startup">{R("On startup",<BSel v={bs.start} set={v=>up("start",v)} o={[["restore","Restore previous tabs"],["newtab","Open New Tab page"],["home","Open homepage"]]}/>)}</BSec>
+  <BSec t="Homepage">{R("Homepage address",<div className="flex gap-2"><input defaultValue={bs.home} id="hp" className="w-56"/><button className="btn" onClick={()=>{const u=resolve(document.getElementById("hp").value);u?(up("home",u),notify("Homepage saved")):notify("Invalid address")}}>Save</button><button className="btn" onClick={()=>up("home",NT)}>Reset</button></div>)}</BSec>
+  <BSec t="Appearance">{R("Theme",<BSel v={bs.theme} set={v=>up("theme",v)} o={[["system","Follow N1ceOS"],["dark","Dark"],["light","Light"]]}/>)}{R("Accent color",<div className="flex gap-2">{ACC.map(a=><button key={a} onClick={()=>up("acc",a)} className="w-6 h-6 rounded-full" style={{background:a,outline:bs.acc===a?"2px solid var(--tx)":"none",outlineOffset:2}}/>)}</div>)}{R("Bookmark toolbar",<button className="btn" onClick={()=>up("bar",bs.bar?0:1)}>{bs.bar?"On":"Off"}</button>)}{R("New Tab background",<BSel v={bs.wall} set={v=>up("wall",+v)} o={[[0,"Default"],...WALLS.map(([n],i)=>[i+1,n])]}/>)}</BSec>
+  <BSec t="Search engine">{R("Default search engine",<BSel v={bs.eng} set={v=>up("eng",v)} o={Object.entries(ENG).map(([k,v])=>[k,v[0]])}/>)}<div className="text-xs mt-1" style={{color:"var(--mu)"}}>Only Wikipedia reliably allows being shown inside the frame; other engines open with an "Open externally" option.</div></BSec>
+  <BSec t="Privacy">{R("Don't record history",<button className="btn" onClick={()=>up("priv",bs.priv?0:1)}>{bs.priv?"On":"Off"}</button>)}{R("Clear browsing data",<div className="flex gap-2"><button className="btn" onClick={()=>{setHi([]);notify("History cleared")}}>History</button><button className="btn" onClick={()=>{setDl([]);notify("Downloads cleared")}}>Downloads</button><button className="btn" onClick={()=>{setBm([]);setFo([]);notify("Bookmarks cleared")}}>Bookmarks</button></div>)}</BSec>
+  <BSec t="Downloads"><div style={{color:"var(--mu)"}}>Downloads are handled by your real browser's download manager.</div></BSec></BPg>};
+ const about=()=><BPg t="About N1ce Browser"><div>N1ce Browser 1.0 for N1ceOS. Pages load inside a standard iframe, so sites that forbid framing (X-Frame-Options / CSP) can't be shown here; we never bypass that, and offer to open them externally instead. Zoom is applied to the frame, and find/print can't reach inside cross-site pages.</div></BPg>;
+ const page=(t,on)=>{const u=t.h[t.i];if(isInt(u))return on?({"n1ce://newtab":newtab,"n1ce://history":hist,"n1ce://bookmarks":bmp,"n1ce://downloads":dlp,"n1ce://settings":set_,"n1ce://about":about}[u]||newtab)():null;
+  if(isEl)return <div className="h-full relative" style={{display:on?"block":"none"}}><WV key={t.rk} t={t} u={u} ut={ut} wvs={wvs} navR={navR} wid={w.id}/>{t.fail&&on&&failv(t)}</div>;
+  return null};
+ const failv=t=><div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3" style={{background:"var(--bg)"}}><I n="WifiOff" s={44}/><div className="text-xl font-semibold">Can't load {bhost(t.fail.u)}</div><div style={{color:"var(--mu)"}}>{t.fail.d} ({t.fail.c})</div><div className="flex gap-2"><button className="btn" onClick={reload}>Retry</button><button className="btn" onClick={()=>ext(t.fail.u)}>Open in external browser</button></div></div>;
+ const mi=[["New tab","Plus",()=>newTab()],["New window","AppWindow",()=>open("browser","new")],["History","History",()=>nav("n1ce://history")],["Downloads","Download",()=>nav("n1ce://downloads")],["Bookmarks","Star",()=>nav("n1ce://bookmarks")],["Settings","Settings",()=>nav("n1ce://settings")],["Print","Printer",print],["Find in page","Search",()=>setFind("")],["Zoom in","ZoomIn",()=>zoom(.1)],["Zoom out","ZoomOut",()=>zoom(-.1)],["Reset zoom ("+Math.round(tab.z*100)+"%)","RotateCcw",()=>zoom(0)],["Fullscreen","Maximize",fs_],["About N1ce Browser","Info",()=>nav("n1ce://about")]];
+ return <div ref={root} tabIndex={-1} onKeyDown={kd} className="h-full flex flex-col outline-none text-sm" style={th} onMouseDown={()=>menu&&setMenu(0)}>
+  <div className="flex items-end gap-1 px-2 pt-1.5 overflow-x-auto" style={{background:"var(--sf2)"}}>{tabs.map(t=><div key={t.id} draggable onDragStart={()=>dg.current=t.id} onDragOver={e=>e.preventDefault()} onDrop={()=>setTabs(ts=>{const f=ts.find(x=>x.id===dg.current);if(!f||f.id===t.id)return ts;const a=ts.filter(x=>x.id!==f.id);a.splice(ts.findIndex(x=>x.id===t.id),0,f);return a})} onClick={()=>setAid(t.id)} onAuxClick={()=>closeTab(t.id)} className="group flex items-center gap-1.5 pl-3 pr-1 py-1.5 rounded-t-xl min-w-24 max-w-44 flex-1 cursor-default" style={{background:t.id===tab.id?"var(--bg)":"transparent"}}>
+   <I n={isInt(t.h[t.i])?"LayoutGrid":"Globe"} s={13}/><span className="truncate flex-1 text-xs">{t.title&&!isInt(t.h[t.i])?t.title:btitle(t.h[t.i])}</span>{t.load?<span className="w-2 h-2 rounded-full animate-pulse" style={{background:"var(--ac)"}}/>:null}
+   <button title="Duplicate tab" className="opacity-0 group-hover:opacity-100" onClick={e=>{e.stopPropagation();dup(t)}}><I n="Copy" s={11}/></button><button title="Close tab" className="p-0.5 it rounded" onClick={e=>{e.stopPropagation();closeTab(t.id)}}><I n="X" s={12}/></button></div>)}
+   <button title="New tab (Ctrl+T)" className="it p-1.5 rounded-lg mb-0.5" onClick={()=>newTab()}><I n="Plus" s={15}/></button></div>
+  <div className="flex items-center gap-1 p-1.5 relative" style={{background:"var(--bg)"}}>
+   <BIb n="ArrowLeft" t="Back (Alt+Left)" f={()=>step(-1)}/><BIb n="ArrowRight" t="Forward (Alt+Right)" f={()=>step(1)}/>{tab.load?<BIb n="X" t="Stop" f={stop}/>:<BIb n="RotateCw" t="Reload (Ctrl+R)" f={reload}/>}<BIb n="House" t="Home" f={()=>nav(bs.home)}/>
+   <input id="n1b-omni" className="flex-1 rounded-full px-4 py-1.5" placeholder="Search or enter address" value={q} onChange={e=>setQ(e.target.value)} onFocus={e=>e.target.select()} onKeyDown={e=>{if(e.key==="Enter")go(q)}}/>
+   <BIb n="Star" t="Bookmark (Ctrl+D)" f={star} on={isBm}/><BIb n="Download" t="Downloads (Ctrl+J)" f={()=>nav("n1ce://downloads")}/><BIb n="History" t="History (Ctrl+H)" f={()=>nav("n1ce://history")}/><BIb n="Menu" t="Menu" f={e=>{setMenu(!menu)}}/>
+   {menu?<div className="gl absolute right-2 top-10 w-52 rounded-xl p-1 z-50" onMouseDown={e=>e.stopPropagation()}>{mi.map(([l,ic,f])=><button key={l} className="it w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-left" onClick={()=>{setMenu(0);f()}}><I n={ic} s={14}/>{l}</button>)}</div>:null}</div>
+  {bs.bar?<div className="flex items-center gap-1 px-2 pb-1 text-xs overflow-x-auto" style={{background:"var(--bg)"}}>{bm.length===0?<span style={{color:"var(--mu)"}}>Bookmarks toolbar — press the star to add pages</span>:bm.slice(0,12).map(b=><button key={b.id} className="it px-2 py-0.5 rounded-md whitespace-nowrap" onClick={()=>nav(b.u)}>{b.t}</button>)}</div>:null}
+  {find!==null&&<div className="flex items-center gap-2 px-3 py-1" style={{background:"var(--sf2)"}}><I n="Search" s={14}/><input autoFocus value={find} onChange={e=>setFind(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")doFind(find);if(e.key==="Escape")setFind(null)}} placeholder="Find on N1ce pages (can't search inside embedded sites)" className="flex-1"/><button className="btn" onClick={()=>setFind(null)}>Close</button></div>}
+  <div className="flex-1 min-h-0 relative" style={{background:"var(--bg)"}}>{tabs.map(t=>{const on=t.id===tab.id;const p=page(t,on);return p&&<div key={t.id} className="absolute inset-0" style={{display:on?"block":"none"}}>{p}</div>})}</div></div>}
+
+function Gate(){const [st,setSt]=useState(null);const [user,setUser]=useState(null);
+ const load=()=>{UKV=null;window.N1UID=null;setUser(null);window.n1ce.auth.status().then(setSt)};
+ useEffect(load,[]);
+ if(user)return <App key={user.id} user={user} logout={()=>window.n1ce.auth.logout().then(load)}/>;
+ if(!st)return <div className="h-full" style={{background:"#0d0e13"}}/>;
+ return <AuthScreen key={st.hasUsers+"-"+st.users.length} st={st} enter={r=>{UKV=r.kv||{};setUser(r.user)}}/>}
+function AuthScreen({st,enter}){const setup=!st.hasUsers;const [f,setF]=useState({username:"",display:"",pw:"",pw2:""});const [pick,setPick]=useState(st.users[0]?st.users[0].username:"");const [err,setErr]=useState("");const [busy,setBusy]=useState(0);
+ const sf=k=>e=>setF(x=>({...x,[k]:e.target.value}));
+ const go=async()=>{setErr("");if(busy)return;if(setup&&f.pw!==f.pw2)return setErr("Passwords do not match");setBusy(1);
+  const r=setup?await window.n1ce.auth.setup({username:f.username.trim().toLowerCase(),display:f.display,password:f.pw}):await window.n1ce.auth.login({username:pick,password:f.pw});setBusy(0);
+  if(!r.ok){setF(x=>({...x,pw:"",pw2:""}));return setErr(r.error)}window.N1UID=r.user.id;enter(r)};
+ const key=e=>e.key==="Enter"&&go();
+ return <div className="h-full flex items-center justify-center" style={{background:WALLS[0][1],color:"var(--tx)"}}><div className="gl rounded-2xl p-7 w-96 win">
+  <div className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center text-white text-xl font-bold mb-2" style={{background:"linear-gradient(135deg,#6c8cff,#a07bff)"}}>N1</div>
+  <div className="text-center text-lg font-semibold">{setup?"Welcome to N1ceOS":"Sign in"}</div><div className="text-center text-xs mb-4" style={{color:"var(--mu)"}}>{setup?"First boot setup — create the administrator account":"Choose an account"}</div>
+  {setup?<><input className="w-full mb-2" placeholder="Username (a-z, 0-9, _ -)" value={f.username} onChange={sf("username")} onKeyDown={key} autoFocus/><input className="w-full mb-2" placeholder="Display name" value={f.display} onChange={sf("display")} onKeyDown={key}/>
+   <input className="w-full mb-2" type="password" placeholder="Password (min 8 characters)" value={f.pw} onChange={sf("pw")} onKeyDown={key}/><input className="w-full mb-2" type="password" placeholder="Confirm password" value={f.pw2} onChange={sf("pw2")} onKeyDown={key}/></>
+  :<><div className="flex flex-wrap gap-2 justify-center mb-3">{st.users.map(u=><button key={u.username} onClick={()=>setPick(u.username)} className="rounded-xl px-3 py-2 text-xs it" style={{background:pick===u.username?"var(--ac)":"var(--sf2)",color:pick===u.username?"#fff":"var(--tx)"}}><div className="font-medium">{u.display}</div><div className="opacity-70">@{u.username}</div></button>)}</div>
+   <input className="w-full mb-2" type="password" placeholder="Password" value={f.pw} onChange={sf("pw")} onKeyDown={key} autoFocus/></>}
+  {err&&<div className="text-xs mb-2" style={{color:"#ff6b81"}}>{err}</div>}
+  <button className="btn w-full !py-2" style={{background:"var(--ac)",color:"#fff"}} onClick={go}>{busy?"Please wait…":setup?"Create account":"Sign in"}</button></div></div>}
+function ProfileSec(){const {user,setMe,logout,notify}=useC();
+ const [info,setInfo]=useState(null);const [dn,setDn]=useState("");const [pw,setPw]=useState({o:"",n:"",c:""});const [del,setDel]=useState(0);const [dp,setDp]=useState("");const [du,setDu]=useState("");const [us,setUs]=useState([]);const [nu,setNu]=useState({username:"",display:"",password:"",role:"user"});const [msg,setMsg]=useState("");
+ const load=()=>{window.n1ce.account.info().then(r=>{if(r.ok){setInfo(r.info);setDn(r.info.display)}});window.n1ce.users.list().then(r=>r.ok&&setUs(r.users))};
+ useEffect(()=>{if(isEl)load()},[]);
+ if(!isEl)return <div style={{color:"var(--mu)"}}>User accounts are available in the N1ceOS desktop (Electron) edition.</div>;
+ const saveDn=async()=>{const r=await window.n1ce.account.setDisplay(dn);if(r.ok){setMe({...user,display:r.display});notify("Display name updated")}else setMsg(r.error)};
+ const savePw=async()=>{if(pw.n!==pw.c)return setMsg("New passwords do not match");const r=await window.n1ce.account.setPassword({oldPassword:pw.o,newPassword:pw.n});if(r.ok){setPw({o:"",n:"",c:""});setMsg("");notify("Password changed")}else setMsg(r.error)};
+ const doDel=async()=>{const r=await window.n1ce.account.delete({password:dp,confirm:du});if(r.ok)logout();else setMsg(r.error)};
+ const mkUser=async()=>{const r=await window.n1ce.users.create({...nu,username:nu.username.trim().toLowerCase()});if(r.ok){setNu({username:"",display:"",password:"",role:"user"});setMsg("");notify("User created",r.user.username);load()}else setMsg(r.error)};
+ return <div><div className="font-semibold mb-2">Account Management</div>
+  {info&&<><PRow l="Username"><b>{info.username}</b></PRow><PRow l="Role"><span>{info.role}</span></PRow><PRow l="Created"><span>{new Date(info.created).toLocaleString()}</span></PRow></>}
+  <PRow l="Display name"><div className="flex gap-2"><input value={dn} onChange={e=>setDn(e.target.value)}/><button className="btn" onClick={saveDn}>Save</button></div></PRow>
+  <div className="py-2 border-b" style={{borderColor:"var(--bd)"}}><div className="mb-1">Change password</div><div className="flex gap-2 flex-wrap"><input type="password" placeholder="Current" value={pw.o} onChange={e=>setPw({...pw,o:e.target.value})}/><input type="password" placeholder="New" value={pw.n} onChange={e=>setPw({...pw,n:e.target.value})}/><input type="password" placeholder="Confirm" value={pw.c} onChange={e=>setPw({...pw,c:e.target.value})}/><button className="btn" onClick={savePw}>Change</button></div></div>
+  {us.length>0&&<div className="py-3"><div className="font-semibold mb-1">Users</div>{us.map(u=><div key={u.id} className="text-xs py-0.5">{u.display} (@{u.username}) · {u.role}</div>)}<div className="text-xs my-1" style={{color:"var(--mu)"}}>Remove users in the terminal: deluser username</div>
+   <div className="flex gap-2 flex-wrap mt-2"><input placeholder="Username" value={nu.username} onChange={e=>setNu({...nu,username:e.target.value})}/><input placeholder="Display name" value={nu.display} onChange={e=>setNu({...nu,display:e.target.value})}/><input type="password" placeholder="Password" value={nu.password} onChange={e=>setNu({...nu,password:e.target.value})}/><select className="rounded-lg p-1" style={{background:"var(--sf2)",border:"1px solid var(--bd)"}} value={nu.role} onChange={e=>setNu({...nu,role:e.target.value})}><option value="user">user</option><option value="admin">admin</option></select><button className="btn" onClick={mkUser}>Add user</button></div></div>}
+  {msg&&<div className="text-xs my-2" style={{color:"#ff6b81"}}>{msg}</div>}
+  <div className="mt-4 p-3 rounded-xl" style={{border:"1px solid #ff6b8166"}}>{!del?<button className="btn" style={{background:"#c0392b",color:"#fff"}} onClick={()=>{setDel(1);setMsg("")}}>Delete Account</button>:<div>
+   <div className="font-semibold mb-1" style={{color:"#ff6b81"}}>This cannot be undone</div><div className="text-xs mb-2">Your account, home folder, all files, settings, wallpaper, terminal history, app data and browser data (bookmarks, history, cookies) will be permanently deleted.</div>
+   <div className="flex gap-2 flex-wrap"><input type="password" placeholder="Your password" value={dp} onChange={e=>setDp(e.target.value)}/><input placeholder={"Type \""+(info?info.username:"")+"\" to confirm"} value={du} onChange={e=>setDu(e.target.value)}/><button className="btn" disabled={!info||du!==info.username||!dp} style={{background:"#c0392b",color:"#fff",opacity:info&&du===info.username&&dp?1:.4}} onClick={doDel}>Delete forever</button><button className="btn" onClick={()=>{setDel(0);setDp("");setDu("")}}>Cancel</button></div></div>}</div></div>}
+
+const IMG_OK=["image/png","image/jpeg","image/webp"];
+const readImg=f=>new Promise((res,rej)=>{if(!f||!IMG_OK.includes(f.type))return rej(new Error("Unsupported file. Use PNG, JPG or WEBP."));if(f.size>8e6)return rej(new Error("Image too large (max 8 MB)"));const r=new FileReader();r.onerror=()=>rej(new Error("Could not read the file"));r.onload=()=>{const im=new Image();im.onload=()=>res({url:r.result,im});im.onerror=()=>rej(new Error("The image is corrupted or unreadable"));im.src=r.result};r.readAsDataURL(f)});
+const shrink=(im,mw=1920)=>{const k=Math.min(1,mw/im.width),c=document.createElement("canvas");c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext("2d").drawImage(im,0,0,c.width,c.height);return c.toDataURL("image/jpeg",.85)};
+const pad=n=>String(n).padStart(2,"0");
+const fmtMs=ms=>{const t=Math.floor(ms/10);return pad(Math.floor(t/6000))+":"+pad(Math.floor(t/100)%60)+"."+pad(t%100)};
+function Viewer({w}){const {F}=useC();const f=F.fs[w.arg];const [bad,setBad]=useState(0);
+ if(!f||!(f.c||"").startsWith("data:image/"))return <div className="p-6" style={{color:"var(--mu)"}}>Nothing to display.</div>;
+ return <div className="h-full flex items-center justify-center p-2" style={{background:"#0b0c10"}}>{bad?<div style={{color:"var(--mu)"}}>This image is corrupted or can't be displayed.</div>:<img src={f.c} alt={f.n} onError={()=>setBad(1)} style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>}</div>}
+function Notes(){const [ns,setNs]=useState(()=>ld("n1_notes",[]));const [sel,setSel]=useState(null);const [q,setQ]=useState("");
+ useEffect(()=>{sv("n1_notes",ns)},[ns]);
+ const cur=ns.find(n=>n.id===sel)||null;
+ const add=()=>{const n={id:nid(),t:"Untitled",b:"",ts:Date.now()};setNs(x=>[n,...x]);setSel(n.id)};
+ const upd=p=>setNs(x=>x.map(n=>n.id===sel?{...n,...p,ts:Date.now()}:n));
+ const del=()=>{if(cur&&confirm("Delete this note?")){setNs(x=>x.filter(n=>n.id!==sel));setSel(null)}};
+ const l=ns.filter(n=>(n.t+n.b).toLowerCase().includes(q.toLowerCase()));
+ return <div className="flex h-full text-sm"><div className="w-52 shrink-0 border-r flex flex-col" style={{borderColor:"var(--bd)",background:"var(--sf2)"}}><div className="p-2 flex gap-1"><input className="flex-1 min-w-0" placeholder="Search" value={q} onChange={e=>setQ(e.target.value)}/><button className="btn" title="New note" onClick={add}><I n="Plus" s={14}/></button></div>
+  <div className="flex-1 overflow-auto px-1">{l.length===0&&<div className="text-center py-6 text-xs" style={{color:"var(--mu)"}}>{ns.length?"No matches":"No notes yet"}</div>}{l.map(n=><button key={n.id} onClick={()=>setSel(n.id)} className="it w-full text-left px-2 py-1.5 rounded-lg mb-0.5" style={sel===n.id?{background:"var(--ac)",color:"#fff"}:{}}><div className="truncate font-medium">{n.t||"Untitled"}</div><div className="text-xs opacity-70 truncate">{new Date(n.ts).toLocaleDateString()} · {n.b.slice(0,24)||"No text"}</div></button>)}</div></div>
+  <div className="flex-1 flex flex-col min-w-0">{cur?<><div className="flex gap-2 p-2 border-b" style={{borderColor:"var(--bd)"}}><input className="flex-1 font-semibold" value={cur.t} onChange={e=>upd({t:e.target.value})}/><button className="btn" title="Delete note" onClick={del}><I n="Trash2" s={14}/></button></div><textarea className="flex-1 resize-none rounded-none border-0 p-3" value={cur.b} onChange={e=>upd({b:e.target.value})} placeholder="Write something… (saved automatically)"/></>:<div className="flex-1 flex items-center justify-center" style={{color:"var(--mu)"}}>Select or create a note</div>}</div></div>}
+function Paint(){const {F,notify}=useC();const cv=useRef();const [col,setCol]=useState("#222222");const [sz,setSz]=useState(6);const [er,setEr]=useState(0);const last=useRef(null);
+ useEffect(()=>{const c=cv.current,x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,c.width,c.height)},[]);
+ const pt=e=>{const c=cv.current,r=c.getBoundingClientRect();return[(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]};
+ const stroke=(a,b)=>{const x=cv.current.getContext("2d"),k=er?"#fff":col;x.strokeStyle=x.fillStyle=k;x.lineWidth=sz;x.lineCap=x.lineJoin="round";x.beginPath();x.moveTo(a[0],a[1]);x.lineTo(b[0],b[1]);x.stroke();if(a===b){x.beginPath();x.arc(a[0],a[1],sz/2,0,7);x.fill()}};
+ const down=e=>{e.currentTarget.setPointerCapture(e.pointerId);const p=pt(e);last.current=p;stroke(p,p)};
+ const move=e=>{if(!last.current)return;const p=pt(e);stroke(last.current,p);last.current=p};
+ const clear=()=>{const c=cv.current,x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,c.width,c.height)};
+ const show=src=>{const im=new Image();im.onload=()=>{clear();const c=cv.current,k=Math.min(c.width/im.width,c.height/im.height);c.getContext("2d").drawImage(im,(c.width-im.width*k)/2,(c.height-im.height*k)/2,im.width*k,im.height*k)};im.onerror=()=>notify("Can't open image","The image is corrupted or unreadable");im.src=src};
+ const save=()=>{F.mk("drawing-"+Date.now().toString(36)+".png","f","pics",cv.current.toDataURL("image/png"));notify("Saved","Drawing saved to Pictures")};
+ const exp=()=>{const a=document.createElement("a");a.href=cv.current.toDataURL("image/png");a.download="drawing.png";a.click()};
+ const pics=Object.entries(F.fs).filter(([,f])=>f.p==="pics"&&!f.del&&(f.c||"").startsWith("data:image/"));
+ return <div className="h-full flex flex-col text-xs"><div className="flex items-center gap-2 p-2 flex-wrap" style={{background:"var(--sf2)"}}>
+  <input type="color" value={col} onChange={e=>{setCol(e.target.value);setEr(0)}} style={{padding:0,width:30,height:26}} title="Color"/><span>Size</span><input type="range" min="1" max="60" value={sz} onChange={e=>setSz(+e.target.value)} style={{padding:0,accentColor:"var(--ac)"}}/><span className="w-5">{sz}</span>
+  <button className="btn" title="Eraser" style={er?{background:"var(--ac)",color:"#fff"}:{}} onClick={()=>setEr(!er)}><I n="Eraser" s={14}/></button><button className="btn" onClick={clear}>Clear</button><button className="btn" onClick={save}>Save</button><button className="btn" onClick={exp}>Export PNG</button>
+  <label className="btn cursor-pointer">Open…<input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={e=>{const f=e.target.files[0];e.target.value="";readImg(f).then(r=>show(r.url)).catch(er=>notify("Can't open image",er.message))}}/></label>
+  <select className="rounded-lg p-1" style={{background:"var(--bg)",border:"1px solid var(--bd)"}} value="" onChange={e=>e.target.value&&show(F.fs[e.target.value].c)}><option value="">From Pictures…</option>{pics.map(([id,f])=><option key={id} value={id}>{f.n}</option>)}</select></div>
+  <div className="flex-1 min-h-0 overflow-auto p-2 flex items-start justify-center" style={{background:"#0b0c10"}}><canvas ref={cv} width={900} height={560} onPointerDown={down} onPointerMove={move} onPointerUp={()=>last.current=null} onPointerLeave={()=>last.current=null} style={{width:"100%",maxWidth:900,aspectRatio:"900/560",background:"#fff",borderRadius:8,cursor:"crosshair",touchAction:"none"}}/></div></div>}
+const WMO=c=>c===0?["Clear sky","Sun"]:c<3?["Partly cloudy","CloudSun"]:c===3?["Overcast","Cloud"]:c<50?["Fog","CloudFog"]:c<60?["Drizzle","CloudDrizzle"]:c<70?["Rain","CloudRain"]:c<80?["Snow","CloudSnow"]:c<90?["Showers","CloudRain"]:["Thunderstorm","CloudLightning"];
+function Weather(){const [loc,setLoc]=useState(()=>ld("n1_wx",{name:"London, United Kingdom",lat:51.5072,lon:-0.1276}));const [d,setD]=useState(null);const [err,setErr]=useState("");const [q,setQ]=useState("");const [busy,setBusy]=useState(0);
+ const load=l=>{setBusy(1);setErr("");fetch(`https://api.open-meteo.com/v1/forecast?latitude=${l.lat}&longitude=${l.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,surface_pressure&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`).then(r=>{if(!r.ok)throw 0;return r.json()}).then(j=>{setD(j);setBusy(0)}).catch(()=>{setErr("Can't load weather. Check your internet connection.");setBusy(0)})};
+ useEffect(()=>{load(loc)},[loc]);
+ const search=()=>{if(!q.trim())return;setErr("");fetch("https://geocoding-api.open-meteo.com/v1/search?count=1&name="+encodeURIComponent(q.trim())).then(r=>r.json()).then(j=>{const r=j.results&&j.results[0];if(!r)return setErr("City not found");const l={name:r.name+(r.country?", "+r.country:""),lat:r.latitude,lon:r.longitude};sv("n1_wx",l);setLoc(l);setQ("")}).catch(()=>setErr("Search failed. Check your internet connection."))};
+ const c=d&&d.current,[desc,ic]=c?WMO(c.weather_code):["",""];
+ return <div className="h-full overflow-auto p-4 text-sm"><div className="flex gap-2 mb-4"><input className="flex-1" placeholder="Search city" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()}/><button className="btn" onClick={search}><I n="Search" s={14}/></button><button className="btn" onClick={()=>load(loc)} title="Refresh"><I n="RotateCw" s={14}/></button></div>
+  {err&&<div className="mb-3 p-2 rounded-lg" style={{background:"var(--sf2)",color:"#ff6b81"}}>{err}</div>}{busy&&!c?<div style={{color:"var(--mu)"}}>Loading…</div>:null}
+  {c&&<><div className="flex items-center gap-4 mb-4"><I n={ic} s={64}/><div><div className="flex items-center gap-1" style={{color:"var(--mu)"}}><I n="MapPin" s={13}/>{loc.name}</div><div className="text-5xl font-light">{Math.round(c.temperature_2m)}°C</div><div>{desc}</div></div></div>
+  <div className="grid grid-cols-2 gap-2 mb-4">{[["Thermometer","Feels like",Math.round(c.apparent_temperature)+"°C"],["Droplets","Humidity",c.relative_humidity_2m+"%"],["Wind","Wind",c.wind_speed_10m+" km/h"],["Gauge","Pressure",Math.round(c.surface_pressure)+" hPa"]].map(([i,l,v])=><div key={l} className="p-3 rounded-xl flex items-center gap-3" style={{background:"var(--sf2)"}}><I n={i}/><div><div className="text-xs" style={{color:"var(--mu)"}}>{l}</div><div className="font-medium">{v}</div></div></div>)}</div>
+  <div className="font-medium mb-1">Next days</div><div className="flex gap-2 flex-wrap">{d.daily.time.slice(0,6).map((t,i)=>{const [dd,di]=WMO(d.daily.weather_code[i]);return <div key={t} className="p-2 rounded-xl text-center w-24" style={{background:"var(--sf2)"}}><div className="text-xs">{i?new Date(t+"T12:00").toLocaleDateString([],{weekday:"short"}):"Today"}</div><I n={di} c="mx-auto my-1"/><div className="text-xs">{Math.round(d.daily.temperature_2m_max[i])}° / {Math.round(d.daily.temperature_2m_min[i])}°</div></div>})}</div>
+  <div className="text-xs mt-3" style={{color:"var(--mu)"}}>Data: Open-Meteo.com</div></>}</div>}
+function Music(){const [list,setList]=useState(()=>ld("n1_music",[["Today's Top Hits","playlist","37i9dQZF1DXcBWIGoYBM5M"]]));const [sel,setSel]=useState(0);const [q,setQ]=useState("");const [err,setErr]=useState("");
+ useEffect(()=>{sv("n1_music",list)},[list]);
+ const parse=s=>{const m=s.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?(track|album|playlist|artist|episode|show)\/([A-Za-z0-9]+)/)||s.match(/spotify:(track|album|playlist|artist|episode|show):([A-Za-z0-9]+)/);return m?[m[1],m[2]]:null};
+ const add=()=>{const p=parse(q);if(!p)return setErr("Paste a Spotify link (track, album, playlist, artist or podcast)");setList(l=>[[prompt("Name for this item","My "+p[0])||p[0],...p],...l]);setSel(0);setQ("");setErr("")};
+ const cur=list[Math.min(sel,list.length-1)];
+ const ext=()=>{const u="https://open.spotify.com";if(isEl)window.n1ce.openExternal(u);else window.open(u,"_blank","noopener")};
+ return <div className="flex h-full text-sm"><div className="w-48 shrink-0 border-r p-2 overflow-auto" style={{borderColor:"var(--bd)",background:"var(--sf2)"}}>
+  <input className="w-full mb-1" placeholder="Paste Spotify link" value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()}/><button className="btn w-full mb-1" onClick={add}>Add</button>{err&&<div className="text-xs mb-1" style={{color:"#ff6b81"}}>{err}</div>}
+  {list.map((l,i)=><div key={l[2]+i} className="flex items-center gap-1"><button className="it flex-1 text-left truncate px-2 py-1.5 rounded-lg" style={i===sel?{background:"var(--ac)",color:"#fff"}:{}} onClick={()=>setSel(i)}>{l[0]}</button><button title="Remove" onClick={()=>setList(x=>x.filter((_,j)=>j!==i))}><I n="X" s={12}/></button></div>)}
+  <button className="btn w-full mt-2" onClick={ext}><I n="ExternalLink" s={13}/> Open Spotify Web Player</button></div>
+  <div className="flex-1 flex flex-col min-w-0 p-3 gap-2">{cur?<iframe title="Spotify" key={cur[1]+cur[2]} src={`https://open.spotify.com/embed/${cur[1]}/${cur[2]}?theme=0`} allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" style={{width:"100%",flex:1,minHeight:152,border:0,borderRadius:12}}/>:<div style={{color:"var(--mu)"}}>Add a Spotify link to start.</div>}
+   <div className="text-xs" style={{color:"var(--mu)"}}>This is the official Spotify player. Log in to Spotify inside it for full tracks; without login you get previews. Full playback may be limited in the desktop app — use the button on the left for the complete web player.</div></div></div>}
+function ClockApp(){const {notify}=useC();const [tab,setTab]=useState("clock");const [,tick]=useState(0);
+ const [sw,setSw]=useState({run:0,base:0,start:0,laps:[]});const [tm,setTm]=useState({run:0,end:0,left:300000});const [tin,setTin]=useState({m:5,s:0});
+ const [al,setAl]=useState(()=>ld("n1_alarms",[]));const [an,setAn]=useState({t:"07:00",l:""});
+ useEffect(()=>{sv("n1_alarms",al)},[al]);
+ useEffect(()=>{const i=setInterval(()=>tick(x=>x+1),100);return()=>clearInterval(i)},[]);
+ const now=new Date(),swEl=sw.base+(sw.run?Date.now()-sw.start:0),tmLeft=tm.run?Math.max(0,tm.end-Date.now()):tm.left;
+ useEffect(()=>{if(tm.run&&tmLeft<=0){setTm({run:0,end:0,left:(tin.m*60+tin.s)*1000});notify("Timer finished","Time is up");[0,600,1200].forEach(t=>setTimeout(()=>snd({mute:0},880,.4),t))}});
+ const setT=(m,s)=>{const v={m:Math.max(0,Math.min(999,+m||0)),s:Math.max(0,Math.min(59,+s||0))};setTin(v);if(!tm.run)setTm(t=>({...t,left:(v.m*60+v.s)*1000}))};
+ const tabs=[["clock","Clock"],["sw","Stopwatch"],["timer","Timer"],["alarm","Alarm"]];
+ return <div className="h-full flex flex-col text-sm"><div className="flex gap-1 p-2" style={{background:"var(--sf2)"}}>{tabs.map(([k,l])=><button key={k} className="btn" style={tab===k?{background:"var(--ac)",color:"#fff"}:{}} onClick={()=>setTab(k)}>{l}</button>)}</div>
+  <div className="flex-1 overflow-auto p-4">
+  {tab==="clock"&&<><CBig>{now.toLocaleTimeString()}</CBig><div className="text-center mb-4" style={{color:"var(--mu)"}}>{now.toLocaleDateString([],{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</div><div className="grid grid-cols-2 gap-2">{[["UTC","UTC"],["New York","America/New_York"],["London","Europe/London"],["Tokyo","Asia/Tokyo"]].map(([n,z])=><div key={n} className="p-3 rounded-xl flex justify-between" style={{background:"var(--sf2)"}}><span>{n}</span><span className="tabular-nums">{now.toLocaleTimeString([],{timeZone:z,hour:"2-digit",minute:"2-digit"})}</span></div>)}</div></>}
+  {tab==="sw"&&<><CBig>{fmtMs(swEl)}</CBig><div className="flex gap-2 justify-center mb-3"><button className="btn" onClick={()=>setSw(s=>s.run?{...s,run:0,base:s.base+Date.now()-s.start}:{...s,run:1,start:Date.now()})}>{sw.run?"Stop":"Start"}</button><button className="btn" disabled={!sw.run} onClick={()=>setSw(s=>({...s,laps:[swEl,...s.laps]}))}>Lap</button><button className="btn" onClick={()=>setSw({run:0,base:0,start:0,laps:[]})}>Reset</button></div>{sw.laps.map((l,i)=><div key={i} className="flex justify-between py-1 border-b tabular-nums" style={{borderColor:"var(--bd)"}}><span>Lap {sw.laps.length-i}</span><span>{fmtMs(l)}</span></div>)}</>}
+  {tab==="timer"&&<><CBig>{pad(Math.floor(tmLeft/3600000))}:{pad(Math.floor(tmLeft/60000)%60)}:{pad(Math.floor(tmLeft/1000)%60)}</CBig><div className="flex gap-2 justify-center items-center mb-3"><input type="number" className="w-20" value={tin.m} disabled={tm.run} onChange={e=>setT(e.target.value,tin.s)}/>min<input type="number" className="w-20" value={tin.s} disabled={tm.run} onChange={e=>setT(tin.m,e.target.value)}/>sec</div><div className="flex gap-2 justify-center"><button className="btn" disabled={!tm.run&&tm.left<=0} onClick={()=>setTm(t=>t.run?{run:0,end:0,left:tmLeft}:{run:1,end:Date.now()+t.left,left:t.left})}>{tm.run?"Pause":"Start"}</button><button className="btn" onClick={()=>setTm({run:0,end:0,left:(tin.m*60+tin.s)*1000})}>Reset</button></div></>}
+  {tab==="alarm"&&<><div className="flex gap-2 mb-3"><input type="time" value={an.t} onChange={e=>setAn({...an,t:e.target.value})}/><input className="flex-1" placeholder="Label" value={an.l} onChange={e=>setAn({...an,l:e.target.value})}/><button className="btn" onClick={()=>{if(!an.t)return;setAl(a=>[...a,{id:nid(),t:an.t,l:an.l,on:1}].sort((x,y)=>x.t.localeCompare(y.t)));setAn({t:an.t,l:""})}}>Add</button></div>
+   {al.length===0&&<div style={{color:"var(--mu)"}}>No alarms</div>}{al.map(a=><div key={a.id} className="flex items-center gap-3 p-2 mb-1 rounded-xl" style={{background:"var(--sf2)"}}><span className="text-2xl tabular-nums">{a.t}</span><span className="flex-1 truncate" style={{color:"var(--mu)"}}>{a.l}</span><button className="btn" style={a.on?{background:"var(--ac)",color:"#fff"}:{}} onClick={()=>setAl(x=>x.map(y=>y===a?{...a,on:a.on?0:1}:y))}>{a.on?"On":"Off"}</button><button title="Delete" onClick={()=>setAl(x=>x.filter(y=>y!==a))}><I n="Trash2" s={15}/></button></div>)}<div className="text-xs mt-2" style={{color:"var(--mu)"}}>Alarms ring while N1ceOS is running.</div></>}
+  </div></div>}
+// Components are defined at module level so they keep their identity between renders (inline ones remount and swallow clicks)
+const SRow=({l,children})=><div className="flex items-center justify-between py-3 border-b" style={{borderColor:"var(--bd)"}}><span>{l}</span>{children}</div>;
+const SSeg=({k,opts})=>{const {S,up}=useC();return <div className="flex gap-1">{opts.map(([v,l])=><button key={v} className="btn" style={S[k]===v?{background:"var(--ac)",color:"#fff"}:{}} onClick={()=>up(k,v)}>{l}</button>)}</div>};
+const PRow=({l,children})=><div className="flex items-center justify-between py-2 border-b gap-2" style={{borderColor:"var(--bd)"}}><span>{l}</span>{children}</div>;
+const BIb=({n,f,t,on})=><button title={t} onClick={f} className="it p-1.5 rounded-lg" style={on?{color:"var(--ac)"}:{}}><I n={n} s={16}/></button>;
+const BSec=({t,children})=><div className="mb-6"><div className="font-semibold mb-2">{t}</div>{children}</div>;
+const BPg=({t,children,act})=><div className="h-full overflow-auto p-6 max-w-3xl mx-auto" style={{userSelect:"text"}}><div className="flex items-center justify-between mb-4"><div className="text-xl font-semibold">{t}</div><div className="flex gap-2">{act}</div></div>{children}</div>;
+const BSel=({v,set,o})=><select className="rounded-lg p-1" style={{background:"var(--sf2)",border:"1px solid var(--bd)"}} value={v} onChange={e=>set(e.target.value)}>{o.map(([a,b])=><option key={a} value={a}>{b}</option>)}</select>;
+const CSel=({val,set,opts})=><select className="w-full rounded-lg p-1 mb-1" style={{background:"var(--sf2)",border:"1px solid var(--bd)"}} value={val} onChange={e=>set(+e.target.value||e.target.value)}>{opts.map(([a,b])=><option key={a} value={a}>{b}</option>)}</select>;
+const HSel=({val,set,opts})=><select className="rounded-lg p-1" style={{background:"var(--sf2)",border:"1px solid var(--bd)"}} value={val} onChange={e=>set(e.target.value)}>{opts.map(([a,b])=><option key={a} value={a}>{b}</option>)}</select>;
+const CBig=({children})=><div className="text-5xl font-light text-center my-6 tabular-nums">{children}</div>;
+const SAMPLE={n1app:1,name:"Click Counter",icon:"MousePointerClick",version:"1.0",html:"<!doctype html><body style='font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;background:#15161c;color:#e8e9f0'><div id=n style='font-size:64px'>0</div><button style='font-size:18px;padding:8px 20px;border-radius:10px;border:0;background:#6c8cff;color:#fff' onclick=\"n.textContent=+n.textContent+1\">Click me</button>"};
+const pkgOk=o=>{if(!o||o.n1app!==1)return'Not an N1ceOS package (missing "n1app": 1)';if(typeof o.name!=="string"||!o.name.trim()||o.name.length>30)return"Invalid name (1-30 characters)";if(typeof o.html!=="string"||o.html.length>500000)return"Missing or too large html (max 500 KB)";return null};
+function PkgManager(){const {S,up,notify,open}=useC();const [txt,setTxt]=useState("");const [err,setErr]=useState("");
+ const install=raw=>{let o;try{o=JSON.parse(raw)}catch{return setErr("Not valid JSON")}const e=pkgOk(o);if(e)return setErr(e);
+  const p={id:nid(),name:o.name.trim(),icon:lucide.icons[o.icon]?o.icon:"Package",version:String(o.version||"1.0").slice(0,12),html:o.html};
+  up("pk",[...(S.pk||[]),p]);setTxt("");setErr("");notify("Package installed",p.name)};
+ const file=e=>{const f=e.target.files[0];if(!f)return;if(f.size>600000)return setErr("File too large (max 500 KB)");f.text().then(install);e.target.value=""};
+ return <div><div className="font-medium mb-1">Install an N1ce package (.json)</div><div className="text-xs mb-2" style={{color:"var(--mu)"}}>Packages are web apps that run in a sandbox: no access to your files, settings or other apps. Only install packages you trust.</div>
+  <div className="flex gap-2 mb-2"><label className="btn cursor-pointer">Choose file…<input type="file" accept=".json" className="hidden" onChange={file}/></label><button className="btn" onClick={()=>install(JSON.stringify(SAMPLE))}>Install sample</button></div>
+  <textarea className="w-full h-24 font-mono text-xs" placeholder="…or paste package JSON" value={txt} onChange={e=>setTxt(e.target.value)}/><button className="btn mt-1" onClick={()=>install(txt)}>Install from text</button>
+  {err&&<div className="text-xs mt-1" style={{color:"#ff6b81"}}>{err}</div>}
+  <div className="font-medium mt-4 mb-1">Installed packages</div>{(S.pk||[]).length===0&&<div style={{color:"var(--mu)"}}>None</div>}
+  {(S.pk||[]).map(p=><div key={p.id} className="flex items-center gap-2 py-1"><I n={p.icon}/><span className="flex-1">{p.name} <span className="text-xs" style={{color:"var(--mu)"}}>v{p.version}</span></span><button className="btn" onClick={()=>open("pkg:"+p.id)}>Launch</button><button className="btn" onClick={()=>{up("pk",S.pk.filter(x=>x.id!==p.id));notify("Package removed",p.name)}}>Uninstall</button></div>)}</div>}
+function PkgApp({w}){const {S}=useC();const p=(S.pk||[]).find(x=>"pkg:"+x.id===w.app);
+ if(!p)return <div className="p-6" style={{color:"var(--mu)"}}>This package was uninstalled.</div>;
+ return <iframe title={p.name} sandbox="allow-scripts allow-forms" srcDoc={p.html} style={{width:"100%",height:"100%",border:0,background:"#fff"}}/>}
+function Root(){return isEl?<Gate/>:<App/>}
+ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
+</script></body></html>
